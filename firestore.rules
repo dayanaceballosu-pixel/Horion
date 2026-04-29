@@ -1,0 +1,30 @@
+rules_version = '2';
+
+// Horión — reglas de seguridad
+//
+// Modelo: cada usuario tiene su namespace bajo `users/{uid}`. Solo el dueño
+// puede leer/escribir lo suyo. Sin autenticación = denegado para todo.
+//
+// Para deployar:
+//   firebase deploy --only firestore:rules
+// O pegar este contenido en Firebase Console → Firestore Database → Rules.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default: nada es público.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // El usuario puede leer/escribir su propio doc raíz y todas sus subcolecciones.
+    match /users/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+
+      // Subcolecciones — todas heredan la regla del padre vía recursive wildcard.
+      match /{collection}/{docId} {
+        allow read, write: if request.auth != null && request.auth.uid == uid;
+      }
+    }
+  }
+}
