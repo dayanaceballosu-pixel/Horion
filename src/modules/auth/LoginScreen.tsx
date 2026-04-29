@@ -1,15 +1,19 @@
 import { useState } from 'react'
 import { useIsDesktop, useIsIosPwa } from '@shared/hooks/useMediaQuery'
-import { signInWithGoogle } from '@/data/auth'
+import { resetPassword, signInWithEmail, signInWithGoogle } from '@/data/auth'
 
 export function LoginScreen() {
   const isDesktop = useIsDesktop()
   const isIosPwa = useIsIosPwa()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [info, setInfo] = useState<string | null>(null)
 
   const handleGoogle = async () => {
     setError(null)
+    setInfo(null)
     setBusy(true)
     try {
       await signInWithGoogle()
@@ -19,23 +23,75 @@ export function LoginScreen() {
     }
   }
 
-  if (isDesktop) {
-    return <DesktopLogin busy={busy} error={error} onGoogle={handleGoogle} />
+  const handleEmail = async () => {
+    setError(null)
+    setInfo(null)
+    if (!email.trim() || !password) {
+      setError('Pon email y contraseña.')
+      return
+    }
+    setBusy(true)
+    try {
+      await signInWithEmail(email.trim(), password)
+    } catch (e) {
+      setError(prettyError(e))
+      setBusy(false)
+    }
   }
-  return <MobileLogin busy={busy} error={error} onGoogle={handleGoogle} iosPwa={isIosPwa} />
+
+  const handleReset = async () => {
+    setError(null)
+    setInfo(null)
+    if (!email.trim()) {
+      setError('Pon tu email arriba para enviarte el enlace.')
+      return
+    }
+    setBusy(true)
+    try {
+      await resetPassword(email.trim())
+      setInfo('Te enviamos un email para restablecer tu contraseña.')
+    } catch (e) {
+      setError(prettyError(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const sharedFormProps = {
+    busy,
+    error,
+    info,
+    email,
+    password,
+    setEmail,
+    setPassword,
+    onGoogle: handleGoogle,
+    onEmail: handleEmail,
+    onReset: handleReset,
+    iosPwa: isIosPwa,
+  }
+
+  if (isDesktop) {
+    return <DesktopLogin {...sharedFormProps} />
+  }
+  return <MobileLogin {...sharedFormProps} />
 }
 
 interface ViewProps {
   busy: boolean
   error: string | null
+  info: string | null
+  email: string
+  password: string
+  setEmail: (v: string) => void
+  setPassword: (v: string) => void
   onGoogle: () => void
-}
-
-interface MobileViewProps extends ViewProps {
+  onEmail: () => void
+  onReset: () => void
   iosPwa: boolean
 }
 
-function DesktopLogin({ busy, error, onGoogle }: ViewProps) {
+function DesktopLogin(props: ViewProps) {
   return (
     <div className="horion-login-desktop">
       {/* Left — editorial hero */}
@@ -128,58 +184,13 @@ function DesktopLogin({ busy, error, onGoogle }: ViewProps) {
               fontSize: 14,
               color: 'var(--ink-mute)',
               lineHeight: 1.6,
-              marginBottom: 36,
+              marginBottom: 28,
             }}
           >
             Tus datos viajan encriptados a tu cuenta privada. Se sincronizan en iPhone, iPad y este navegador automáticamente.
           </div>
 
-          <button
-            type="button"
-            onClick={onGoogle}
-            disabled={busy}
-            style={{
-              width: '100%',
-              height: 56,
-              borderRadius: 99,
-              background: 'var(--ink)',
-              color: 'var(--bg)',
-              border: 'none',
-              fontFamily: 'var(--font-sans)',
-              fontSize: 15,
-              fontWeight: 600,
-              cursor: busy ? 'wait' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 12,
-              boxShadow: '0 12px 32px rgba(10, 2, 4, 0.20)',
-              opacity: busy ? 0.7 : 1,
-              transition: 'transform 120ms',
-            }}
-            onMouseDown={(e) => (e.currentTarget.style.transform = 'scale(0.98)')}
-            onMouseUp={(e) => (e.currentTarget.style.transform = '')}
-            onMouseLeave={(e) => (e.currentTarget.style.transform = '')}
-          >
-            <GoogleG />
-            {busy ? 'Conectando…' : 'Continuar con Google'}
-          </button>
-
-          {error && (
-            <div
-              style={{
-                marginTop: 14,
-                fontFamily: 'var(--font-sans)',
-                fontSize: 12,
-                color: 'var(--accent)',
-                padding: 12,
-                borderRadius: 12,
-                background: 'var(--accent-pale)',
-              }}
-            >
-              {error}
-            </div>
-          )}
+          <AuthForm {...props} />
 
           <div
             style={{
@@ -199,7 +210,7 @@ function DesktopLogin({ busy, error, onGoogle }: ViewProps) {
   )
 }
 
-function MobileLogin({ busy, error, onGoogle, iosPwa }: MobileViewProps) {
+function MobileLogin(props: ViewProps) {
   return (
     <div
       style={{
@@ -207,7 +218,7 @@ function MobileLogin({ busy, error, onGoogle, iosPwa }: MobileViewProps) {
         background: 'var(--bg)',
         display: 'flex',
         flexDirection: 'column',
-        padding: '40px 28px calc(32px + env(safe-area-inset-bottom))',
+        padding: '32px 24px calc(28px + env(safe-area-inset-bottom))',
       }}
     >
       <div
@@ -218,12 +229,13 @@ function MobileLogin({ busy, error, onGoogle, iosPwa }: MobileViewProps) {
           justifyContent: 'center',
           alignItems: 'center',
           textAlign: 'center',
+          paddingBottom: 16,
         }}
       >
         <div
           style={{
             width: '100%',
-            maxWidth: 220,
+            maxWidth: 160,
             aspectRatio: '1 / 1',
             filter: 'drop-shadow(0 18px 40px rgba(232, 119, 154, 0.30))',
           }}
@@ -231,10 +243,9 @@ function MobileLogin({ busy, error, onGoogle, iosPwa }: MobileViewProps) {
           <img
             src="/icons/horion-logo.png"
             alt="Horión"
-            style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: 32 }}
+            style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: 28 }}
           />
         </div>
-
         <div
           style={{
             fontFamily: 'var(--font-mono)',
@@ -242,7 +253,7 @@ function MobileLogin({ busy, error, onGoogle, iosPwa }: MobileViewProps) {
             color: 'var(--accent)',
             letterSpacing: 2,
             textTransform: 'uppercase',
-            marginTop: 28,
+            marginTop: 22,
           }}
         >
           Bienvenida
@@ -251,211 +262,276 @@ function MobileLogin({ busy, error, onGoogle, iosPwa }: MobileViewProps) {
           style={{
             fontFamily: 'var(--font-display)',
             fontStyle: 'italic',
-            fontSize: 30,
+            fontSize: 26,
             color: 'var(--ink)',
             lineHeight: 1.05,
-            letterSpacing: -0.8,
-            marginTop: 10,
+            letterSpacing: -0.6,
+            marginTop: 8,
             maxWidth: 320,
           }}
         >
           Tu visión, tu ruta, tu legado.
         </div>
+      </div>
+
+      <AuthForm {...props} />
+
+      <div
+        style={{
+          fontFamily: 'var(--font-mono)',
+          fontSize: 9,
+          color: 'var(--ink-faint)',
+          textAlign: 'center',
+          letterSpacing: 1.4,
+          marginTop: 14,
+          textTransform: 'uppercase',
+        }}
+      >
+        Encriptación de extremo a extremo · Funciona offline
+      </div>
+    </div>
+  )
+}
+
+/* ─────────── Reusable form (used in both desktop and mobile) ─────────── */
+
+function AuthForm({
+  busy,
+  error,
+  info,
+  email,
+  password,
+  setEmail,
+  setPassword,
+  onGoogle,
+  onEmail,
+  onReset,
+  iosPwa,
+}: ViewProps) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {iosPwa && (
+        <div
+          style={{
+            padding: '10px 14px',
+            borderRadius: 14,
+            background: 'var(--bg-card)',
+            border: '0.5px solid var(--hairline)',
+            fontFamily: 'var(--font-sans)',
+            fontSize: 12,
+            color: 'var(--ink-mute)',
+            lineHeight: 1.5,
+          }}
+        >
+          💡 En la app instalada usa <strong style={{ color: 'var(--ink)' }}>email y contraseña</strong>. El botón de Google solo funciona desde Safari.
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={onGoogle}
+        disabled={busy}
+        style={{
+          height: 52,
+          borderRadius: 99,
+          background: 'var(--ink)',
+          color: 'var(--bg)',
+          border: 'none',
+          fontFamily: 'var(--font-sans)',
+          fontSize: 14,
+          fontWeight: 600,
+          cursor: busy ? 'wait' : 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 10,
+          opacity: busy ? 0.7 : 1,
+          boxShadow: '0 8px 24px rgba(10, 2, 4, 0.18)',
+        }}
+      >
+        <GoogleG />
+        {busy ? 'Conectando…' : 'Continuar con Google'}
+      </button>
+
+      <Divider label="o entra con tu contraseña" />
+
+      <Field
+        label="Email"
+        value={email}
+        onChange={setEmail}
+        type="email"
+        placeholder="tu@email.com"
+        autoComplete="email"
+      />
+      <Field
+        label="Contraseña"
+        value={password}
+        onChange={setPassword}
+        type="password"
+        placeholder="••••••••"
+        autoComplete="current-password"
+      />
+
+      <button
+        type="button"
+        onClick={onEmail}
+        disabled={busy}
+        style={{
+          height: 48,
+          borderRadius: 99,
+          background: 'var(--accent)',
+          color: '#FFFFFF',
+          border: 'none',
+          fontFamily: 'var(--font-sans)',
+          fontSize: 14,
+          fontWeight: 600,
+          cursor: busy ? 'wait' : 'pointer',
+          opacity: busy ? 0.7 : 1,
+          marginTop: 4,
+        }}
+      >
+        Iniciar sesión
+      </button>
+
+      <button
+        type="button"
+        onClick={onReset}
+        disabled={busy}
+        style={{
+          background: 'none',
+          border: 'none',
+          color: 'var(--ink-mute)',
+          fontFamily: 'var(--font-sans)',
+          fontSize: 12,
+          cursor: busy ? 'wait' : 'pointer',
+          textDecoration: 'underline',
+          textUnderlineOffset: 3,
+          textAlign: 'center',
+          padding: 4,
+        }}
+      >
+        ¿Olvidaste tu contraseña?
+      </button>
+
+      {error && (
         <div
           style={{
             fontFamily: 'var(--font-sans)',
-            fontSize: 13,
-            color: 'var(--ink-mute)',
-            lineHeight: 1.55,
-            marginTop: 14,
-            maxWidth: 320,
+            fontSize: 12,
+            color: 'var(--accent)',
+            padding: 12,
+            borderRadius: 12,
+            background: 'var(--accent-pale)',
+            textAlign: 'center',
+            lineHeight: 1.4,
           }}
         >
-          Tus datos se sincronizan de forma privada en todos tus dispositivos. Solo vos accedés.
+          {error}
         </div>
-      </div>
+      )}
 
-      {iosPwa ? (
-        <IosPwaInstructions />
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 28 }}>
-          <button
-            type="button"
-            onClick={onGoogle}
-            disabled={busy}
-            style={{
-              height: 56,
-              borderRadius: 99,
-              background: 'var(--ink)',
-              color: 'var(--bg)',
-              border: 'none',
-              fontFamily: 'var(--font-sans)',
-              fontSize: 15,
-              fontWeight: 600,
-              cursor: busy ? 'wait' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 12,
-              opacity: busy ? 0.7 : 1,
-              boxShadow: '0 8px 24px rgba(10, 2, 4, 0.18)',
-            }}
-          >
-            <GoogleG />
-            {busy ? 'Conectando…' : 'Continuar con Google'}
-          </button>
-
-          {error && (
-            <div
-              style={{
-                fontFamily: 'var(--font-sans)',
-                fontSize: 12,
-                color: 'var(--accent)',
-                padding: 12,
-                borderRadius: 12,
-                background: 'var(--accent-pale)',
-                textAlign: 'center',
-              }}
-            >
-              {error}
-            </div>
-          )}
-
-          <div
-            style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: 9,
-              color: 'var(--ink-faint)',
-              textAlign: 'center',
-              letterSpacing: 1.4,
-              marginTop: 8,
-              textTransform: 'uppercase',
-            }}
-          >
-            Encriptación de extremo a extremo · Funciona offline
-          </div>
+      {info && (
+        <div
+          style={{
+            fontFamily: 'var(--font-sans)',
+            fontSize: 12,
+            color: 'var(--ink)',
+            padding: 12,
+            borderRadius: 12,
+            background: 'var(--bg-card)',
+            border: '0.5px solid var(--hairline)',
+            textAlign: 'center',
+            lineHeight: 1.4,
+          }}
+        >
+          {info}
         </div>
       )}
     </div>
   )
 }
 
-/**
- * iOS PWAs cannot complete Google's OAuth flow because Apple hijacks the
- * redirect into Safari, which leaves the standalone app stuck. Workaround
- * is to log in once in Safari (which shares IndexedDB with the PWA via the
- * same origin) — the PWA inherits the session next time it opens.
- */
-function IosPwaInstructions() {
+function Field({
+  label,
+  value,
+  onChange,
+  type = 'text',
+  placeholder,
+  autoComplete,
+}: {
+  label: string
+  value: string
+  onChange: (v: string) => void
+  type?: string
+  placeholder?: string
+  autoComplete?: string
+}) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 24 }}>
-      <div
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <span
         style={{
           fontFamily: 'var(--font-mono)',
           fontSize: 10,
-          color: 'var(--accent)',
-          letterSpacing: 1.6,
-          textTransform: 'uppercase',
-          textAlign: 'center',
-        }}
-      >
-        Primer ingreso en iPhone
-      </div>
-
-      <div
-        style={{
-          fontFamily: 'var(--font-sans)',
-          fontSize: 13,
-          color: 'var(--ink)',
-          lineHeight: 1.55,
-          textAlign: 'center',
-          padding: '0 4px',
-        }}
-      >
-        Apple no permite el login con Google dentro de la app instalada. Hazlo una vez en Safari y la app instalada quedará lista para siempre.
-      </div>
-
-      <ol
-        style={{
-          listStyle: 'none',
-          padding: 0,
-          margin: '6px 0 0',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 10,
-        }}
-      >
-        <Step n={1}>
-          Cierra esta app y abre <strong>Safari</strong>.
-        </Step>
-        <Step n={2}>
-          Entra a <strong>horion-gray.vercel.app</strong> e inicia sesión con Google ahí.
-        </Step>
-        <Step n={3}>
-          Cierra Safari y vuelve a abrir esta app desde tu pantalla de inicio. Ya estarás dentro.
-        </Step>
-      </ol>
-
-      <div
-        style={{
-          marginTop: 14,
-          padding: 14,
-          borderRadius: 14,
-          background: 'var(--bg-card)',
-          border: '0.5px solid var(--hairline)',
-          fontFamily: 'var(--font-sans)',
-          fontSize: 12,
           color: 'var(--ink-mute)',
-          lineHeight: 1.5,
-          textAlign: 'center',
+          letterSpacing: 0.6,
+          textTransform: 'uppercase',
         }}
       >
-        Es un paso único. La sesión se guarda en tu iPhone y la app instalada la hereda automáticamente.
-      </div>
-    </div>
+        {label}
+      </span>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        autoComplete={autoComplete}
+        style={{
+          height: 46,
+          padding: '0 14px',
+          borderRadius: 12,
+          border: '0.5px solid var(--hairline)',
+          background: 'var(--bg-card)',
+          color: 'var(--ink)',
+          fontFamily: 'var(--font-sans)',
+          fontSize: 14,
+          outline: 'none',
+        }}
+      />
+    </label>
   )
 }
 
-function Step({ n, children }: { n: number; children: React.ReactNode }) {
+function Divider({ label }: { label: string }) {
   return (
-    <li style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        margin: '4px 0',
+      }}
+    >
+      <span style={{ flex: 1, height: '0.5px', background: 'var(--hairline)' }} />
       <span
         style={{
-          minWidth: 26,
-          height: 26,
-          borderRadius: 99,
-          background: 'var(--accent)',
-          color: '#FFFFFF',
           fontFamily: 'var(--font-mono)',
-          fontSize: 12,
-          fontWeight: 600,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          flexShrink: 0,
+          fontSize: 9,
+          color: 'var(--ink-faint)',
+          letterSpacing: 1,
+          textTransform: 'uppercase',
+          whiteSpace: 'nowrap',
         }}
       >
-        {n}
+        {label}
       </span>
-      <span
-        style={{
-          fontFamily: 'var(--font-sans)',
-          fontSize: 13,
-          color: 'var(--ink)',
-          lineHeight: 1.5,
-          paddingTop: 3,
-          textAlign: 'left',
-        }}
-      >
-        {children}
-      </span>
-    </li>
+      <span style={{ flex: 1, height: '0.5px', background: 'var(--hairline)' }} />
+    </div>
   )
 }
 
 function GoogleG() {
   return (
-    <svg width={20} height={20} viewBox="0 0 18 18" style={{ background: '#FFF', borderRadius: 99, padding: 2 }}>
+    <svg width={18} height={18} viewBox="0 0 18 18" style={{ background: '#FFF', borderRadius: 99, padding: 2 }}>
       <path
         fill="#4285F4"
         d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 01-1.79 2.72v2.26h2.9c1.7-1.56 2.69-3.86 2.69-6.62z"
@@ -482,6 +558,14 @@ function prettyError(e: unknown): string {
       'auth/network-request-failed': 'Sin conexión — la app sigue funcionando offline',
       'auth/cancelled-popup-request': 'Otra ventana ya estaba abierta',
       'auth/unauthorized-domain': 'Este dominio no está autorizado en Firebase',
+      'auth/user-not-found':
+        'No encontramos esta cuenta. Si la creaste con Google, primero inicia sesión con Google y configura una contraseña.',
+      'auth/wrong-password': 'Contraseña incorrecta.',
+      'auth/invalid-credential':
+        'Email o contraseña incorrectos. Si solo has entrado con Google, primero hazlo en Safari y configura una contraseña.',
+      'auth/invalid-email': 'Ese email no parece válido.',
+      'auth/too-many-requests': 'Demasiados intentos. Espera un momento e intenta de nuevo.',
+      'auth/missing-password': 'Pon tu contraseña.',
     }
     return map[code] ?? `Error: ${code}`
   }

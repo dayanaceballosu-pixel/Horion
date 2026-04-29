@@ -1,5 +1,6 @@
+import { useState } from 'react'
 import { Route, Switch, useLocation } from 'wouter'
-import { useAuthStore } from '@/data/auth'
+import { hasPasswordProvider, useAuthStore } from '@/data/auth'
 import { useDoc } from '@shared/hooks/useFirestore'
 import { useIsDesktop } from '@shared/hooks/useMediaQuery'
 import { settingsRef } from '@/data/repositories/settings'
@@ -11,6 +12,7 @@ import { MobileShell } from './MobileShell'
 import { DesktopShell } from './DesktopShell'
 import { TabBar } from './TabBar'
 import { LoginScreen } from '@modules/auth/LoginScreen'
+import { PasswordSetupScreen } from '@modules/auth/PasswordSetupScreen'
 
 import { HomeScreen } from '@modules/home/HomeScreen'
 import { FinanzasScreen } from '@modules/finanzas/FinanzasScreen'
@@ -45,8 +47,16 @@ function Gate() {
 
 function AuthedApp() {
   const settings = useDoc<Settings>(() => settingsRef(), [])
+  const user = useAuthStore((s) => s.user)
   const [, navigate] = useLocation()
   const isDesktop = useIsDesktop()
+
+  /* Local "the user pressed 'Más tarde'" flag, scoped per uid via
+     localStorage so dismissal sticks across reloads on this device but
+     doesn't leak across accounts. */
+  const [pwdPromptDismissed, setPwdPromptDismissed] = useState(() =>
+    user ? readPwdPromptDismissed(user.uid) : false,
+  )
 
   /* Bridge palette/modePref between the Settings doc and the local theme
      store so the user's choice follows them across devices. */
@@ -56,6 +66,21 @@ function AuthedApp() {
   if (!settings) return <Splash label="Preparando tu Horión…" />
   if (!settings.onboardingCompleted) {
     return <OnboardingScreen onDone={() => navigate('/')} />
+  }
+
+  /* After onboarding: nudge the user to set a password if their account is
+     Google-only. Required for the iOS PWA where Google's redirect dies.
+     They can skip with "Más tarde" and configure it later from Perfil. */
+  if (user && !hasPasswordProvider(user) && !pwdPromptDismissed) {
+    return (
+      <PasswordSetupScreen
+        onDone={() => setPwdPromptDismissed(true)}
+        onSkip={() => {
+          writePwdPromptDismissed(user.uid)
+          setPwdPromptDismissed(true)
+        }}
+      />
+    )
   }
 
   const Shell = isDesktop ? DesktopShell : MobileShell
@@ -103,6 +128,20 @@ function AuthedApp() {
       </Switch>
     </Shell>
   )
+}
+
+function pwdPromptKey(uid: string): string {
+  return `horion:pwd-prompt-dismissed:${uid}`
+}
+
+function readPwdPromptDismissed(uid: string): boolean {
+  if (typeof window === 'undefined') return false
+  return window.localStorage.getItem(pwdPromptKey(uid)) === '1'
+}
+
+function writePwdPromptDismissed(uid: string): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(pwdPromptKey(uid), '1')
 }
 
 function Splash({ label }: { label: string }) {

@@ -1,13 +1,16 @@
 import {
   createUserWithEmailAndPassword,
+  EmailAuthProvider,
   getRedirectResult,
   GoogleAuthProvider,
+  linkWithCredential,
   onAuthStateChanged,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signInWithPopup,
   signInWithRedirect,
   signOut,
+  updatePassword,
   type User,
 } from 'firebase/auth'
 import { getDoc, setDoc, writeBatch, serverTimestamp } from 'firebase/firestore'
@@ -241,6 +244,34 @@ export async function resetPassword(email: string): Promise<void> {
 
 export async function signOutCurrent(): Promise<void> {
   await signOut(auth)
+}
+
+/** True if the signed-in user already has an email/password credential
+ *  attached. Used to decide whether to show the "set a password" prompt
+ *  after a fresh Google sign-in. */
+export function hasPasswordProvider(user: User): boolean {
+  return user.providerData.some((p) => p.providerId === 'password')
+}
+
+/** Adds an email/password credential to the currently signed-in account so
+ *  the user can also log in with email + password (e.g. inside an iOS PWA
+ *  where Google's redirect flow is blocked). The email comes from the
+ *  existing identity (Google) — the user only chooses a password. */
+export async function linkPasswordToCurrentUser(password: string): Promise<void> {
+  const user = auth.currentUser
+  if (!user) throw new Error('No hay sesión activa')
+  if (!user.email) throw new Error('Tu cuenta no tiene email asociado')
+  const credential = EmailAuthProvider.credential(user.email, password)
+  await linkWithCredential(user, credential)
+}
+
+/** Replaces the password on the currently signed-in user. Firebase requires
+ *  a recent sign-in for this; we surface the error so the UI can ask the
+ *  user to re-authenticate. */
+export async function updateCurrentPassword(newPassword: string): Promise<void> {
+  const user = auth.currentUser
+  if (!user) throw new Error('No hay sesión activa')
+  await updatePassword(user, newPassword)
 }
 
 export function requireUid(): string {
