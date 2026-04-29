@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { useIsDesktop } from '@shared/hooks/useMediaQuery'
+import { useIsDesktop, useIsIosPwa } from '@shared/hooks/useMediaQuery'
 import { signInWithGoogle } from '@/data/auth'
 
 export function LoginScreen() {
   const isDesktop = useIsDesktop()
+  const isIosPwa = useIsIosPwa()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -21,13 +22,17 @@ export function LoginScreen() {
   if (isDesktop) {
     return <DesktopLogin busy={busy} error={error} onGoogle={handleGoogle} />
   }
-  return <MobileLogin busy={busy} error={error} onGoogle={handleGoogle} />
+  return <MobileLogin busy={busy} error={error} onGoogle={handleGoogle} iosPwa={isIosPwa} />
 }
 
 interface ViewProps {
   busy: boolean
   error: string | null
   onGoogle: () => void
+}
+
+interface MobileViewProps extends ViewProps {
+  iosPwa: boolean
 }
 
 function DesktopLogin({ busy, error, onGoogle }: ViewProps) {
@@ -194,7 +199,7 @@ function DesktopLogin({ busy, error, onGoogle }: ViewProps) {
   )
 }
 
-function MobileLogin({ busy, error, onGoogle }: ViewProps) {
+function MobileLogin({ busy, error, onGoogle, iosPwa }: MobileViewProps) {
   return (
     <div
       style={{
@@ -270,64 +275,181 @@ function MobileLogin({ busy, error, onGoogle }: ViewProps) {
         </div>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 28 }}>
-        <button
-          type="button"
-          onClick={onGoogle}
-          disabled={busy}
-          style={{
-            height: 56,
-            borderRadius: 99,
-            background: 'var(--ink)',
-            color: 'var(--bg)',
-            border: 'none',
-            fontFamily: 'var(--font-sans)',
-            fontSize: 15,
-            fontWeight: 600,
-            cursor: busy ? 'wait' : 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 12,
-            opacity: busy ? 0.7 : 1,
-            boxShadow: '0 8px 24px rgba(10, 2, 4, 0.18)',
-          }}
-        >
-          <GoogleG />
-          {busy ? 'Conectando…' : 'Continuar con Google'}
-        </button>
-
-        {error && (
-          <div
+      {iosPwa ? (
+        <IosPwaInstructions />
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 28 }}>
+          <button
+            type="button"
+            onClick={onGoogle}
+            disabled={busy}
             style={{
+              height: 56,
+              borderRadius: 99,
+              background: 'var(--ink)',
+              color: 'var(--bg)',
+              border: 'none',
               fontFamily: 'var(--font-sans)',
-              fontSize: 12,
-              color: 'var(--accent)',
-              padding: 12,
-              borderRadius: 12,
-              background: 'var(--accent-pale)',
-              textAlign: 'center',
+              fontSize: 15,
+              fontWeight: 600,
+              cursor: busy ? 'wait' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 12,
+              opacity: busy ? 0.7 : 1,
+              boxShadow: '0 8px 24px rgba(10, 2, 4, 0.18)',
             }}
           >
-            {error}
-          </div>
-        )}
+            <GoogleG />
+            {busy ? 'Conectando…' : 'Continuar con Google'}
+          </button>
 
-        <div
-          style={{
-            fontFamily: 'var(--font-mono)',
-            fontSize: 9,
-            color: 'var(--ink-faint)',
-            textAlign: 'center',
-            letterSpacing: 1.4,
-            marginTop: 8,
-            textTransform: 'uppercase',
-          }}
-        >
-          Encriptación de extremo a extremo · Funciona offline
+          {error && (
+            <div
+              style={{
+                fontFamily: 'var(--font-sans)',
+                fontSize: 12,
+                color: 'var(--accent)',
+                padding: 12,
+                borderRadius: 12,
+                background: 'var(--accent-pale)',
+                textAlign: 'center',
+              }}
+            >
+              {error}
+            </div>
+          )}
+
+          <div
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: 9,
+              color: 'var(--ink-faint)',
+              textAlign: 'center',
+              letterSpacing: 1.4,
+              marginTop: 8,
+              textTransform: 'uppercase',
+            }}
+          >
+            Encriptación de extremo a extremo · Funciona offline
+          </div>
         </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * iOS PWAs cannot complete Google's OAuth flow because Apple hijacks the
+ * redirect into Safari, which leaves the standalone app stuck. Workaround
+ * is to log in once in Safari (which shares IndexedDB with the PWA via the
+ * same origin) — the PWA inherits the session next time it opens.
+ */
+function IosPwaInstructions() {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 24 }}>
+      <div
+        style={{
+          fontFamily: 'var(--font-mono)',
+          fontSize: 10,
+          color: 'var(--accent)',
+          letterSpacing: 1.6,
+          textTransform: 'uppercase',
+          textAlign: 'center',
+        }}
+      >
+        Primer ingreso en iPhone
+      </div>
+
+      <div
+        style={{
+          fontFamily: 'var(--font-sans)',
+          fontSize: 13,
+          color: 'var(--ink)',
+          lineHeight: 1.55,
+          textAlign: 'center',
+          padding: '0 4px',
+        }}
+      >
+        Apple no permite el login con Google dentro de la app instalada. Hazlo una vez en Safari y la app instalada quedará lista para siempre.
+      </div>
+
+      <ol
+        style={{
+          listStyle: 'none',
+          padding: 0,
+          margin: '6px 0 0',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 10,
+        }}
+      >
+        <Step n={1}>
+          Cierra esta app y abre <strong>Safari</strong>.
+        </Step>
+        <Step n={2}>
+          Entra a <strong>horion-gray.vercel.app</strong> e inicia sesión con Google ahí.
+        </Step>
+        <Step n={3}>
+          Cierra Safari y vuelve a abrir esta app desde tu pantalla de inicio. Ya estarás dentro.
+        </Step>
+      </ol>
+
+      <div
+        style={{
+          marginTop: 14,
+          padding: 14,
+          borderRadius: 14,
+          background: 'var(--bg-card)',
+          border: '0.5px solid var(--hairline)',
+          fontFamily: 'var(--font-sans)',
+          fontSize: 12,
+          color: 'var(--ink-mute)',
+          lineHeight: 1.5,
+          textAlign: 'center',
+        }}
+      >
+        Es un paso único. La sesión se guarda en tu iPhone y la app instalada la hereda automáticamente.
       </div>
     </div>
+  )
+}
+
+function Step({ n, children }: { n: number; children: React.ReactNode }) {
+  return (
+    <li style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+      <span
+        style={{
+          minWidth: 26,
+          height: 26,
+          borderRadius: 99,
+          background: 'var(--accent)',
+          color: '#FFFFFF',
+          fontFamily: 'var(--font-mono)',
+          fontSize: 12,
+          fontWeight: 600,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
+        }}
+      >
+        {n}
+      </span>
+      <span
+        style={{
+          fontFamily: 'var(--font-sans)',
+          fontSize: 13,
+          color: 'var(--ink)',
+          lineHeight: 1.5,
+          paddingTop: 3,
+          textAlign: 'left',
+        }}
+      >
+        {children}
+      </span>
+    </li>
   )
 }
 

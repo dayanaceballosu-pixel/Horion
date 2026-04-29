@@ -234,6 +234,12 @@ export interface TaskCompletion {
   createdAt: number
 }
 
+/** Theme palette identifiers. Mirrors `PaletteKey` in shared/theme/palettes
+ *  but kept local to the data layer so Settings has no upward dependency on
+ *  the UI theme module. Keep these in sync when adding palettes. */
+export type ThemePalette = 'horion' | 'hotpink' | 'rose' | 'fuchsia'
+export type ThemeModePref = 'light' | 'dark' | 'auto'
+
 export interface Settings {
   id: 'main'
   userName: string
@@ -243,6 +249,12 @@ export interface Settings {
   /** Currency used for the "totals" view across Finanzas, category detail and
    *  Estadísticas. The user can flip it via the in-screen toggle. */
   displayCurrency: DisplayCurrency
+  /** Visual theme palette synced across devices. Optional for backward
+   *  compatibility with users created before sync existed — those clients
+   *  push their local preference up the first time they connect. */
+  palette?: ThemePalette
+  /** Light / dark / auto-by-system preference, also synced. */
+  modePref?: ThemeModePref
   /** PIN hash (PBKDF2-derived) — empty means no PIN. */
   pinHash?: string
   pinSalt?: string

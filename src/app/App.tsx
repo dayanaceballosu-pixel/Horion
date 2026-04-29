@@ -5,6 +5,7 @@ import { useIsDesktop } from '@shared/hooks/useMediaQuery'
 import { settingsRef } from '@/data/repositories/settings'
 import type { Settings } from '@/data/types'
 import { ThemeProvider } from '@shared/theme/ThemeProvider'
+import { useThemeSync } from '@shared/theme/useTheme'
 import { InstallPrompt } from '@shared/components/InstallPrompt'
 import { MobileShell } from './MobileShell'
 import { DesktopShell } from './DesktopShell'
@@ -46,6 +47,10 @@ function AuthedApp() {
   const settings = useDoc<Settings>(() => settingsRef(), [])
   const [, navigate] = useLocation()
   const isDesktop = useIsDesktop()
+
+  /* Bridge palette/modePref between the Settings doc and the local theme
+     store so the user's choice follows them across devices. */
+  useThemeSync()
 
   /* settings is undefined while the bootstrap doc is being created — show splash. */
   if (!settings) return <Splash label="Preparando tu Horión…" />

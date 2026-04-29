@@ -42,6 +42,17 @@ onAuthStateChanged(auth, (u) => {
    (popup blocked equivalents, account selection cancelled, etc). */
 void getRedirectResult(auth).catch(() => undefined)
 
+/* Safety net: if Firebase Auth never reports a state (e.g. an iOS PWA where
+   a redirect was hijacked by Safari and we're sitting on a stale "loading"
+   flag), unstick the splash after 4 seconds so the user can at least see the
+   login screen and try again. Re-checks `onAuthStateChanged` already settled
+   the store, in which case this is a no-op. */
+setTimeout(() => {
+  if (useAuthStore.getState().loading) {
+    useAuthStore.setState({ loading: false })
+  }
+}, 4000)
+
 /**
  * On first sign-in we seed the user's Firestore namespace with sensible defaults
  * AND with the data the client confirmed in her questionnaire (4 wallets,
@@ -75,6 +86,8 @@ async function ensureUserBootstrap(user: User): Promise<void> {
     defaultCurrency: 'COP',
     enabledCurrencies: ['COP', 'EUR', 'USD', 'PLN'],
     displayCurrency: 'COP',
+    palette: 'horion',
+    modePref: 'auto',
     pinScope: 'app',          /* "solo después de unos minutos sin uso" */
     notificationsEnabled: true,
     reminderHour: 6,
