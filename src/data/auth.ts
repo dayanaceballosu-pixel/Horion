@@ -1,10 +1,12 @@
 import {
   createUserWithEmailAndPassword,
+  getRedirectResult,
   GoogleAuthProvider,
   onAuthStateChanged,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
   signOut,
   type User,
 } from 'firebase/auth'
@@ -33,6 +35,12 @@ onAuthStateChanged(auth, (u) => {
     void ensureUserBootstrap(u).then(() => runMigrations(u.uid).catch(() => undefined))
   }
 })
+
+/* When mobile devices come back from a `signInWithRedirect`, we need to drain
+   the result so Firebase finalises the session. The user surface lands in
+   `onAuthStateChanged` either way; this just surfaces redirect-time errors
+   (popup blocked equivalents, account selection cancelled, etc). */
+void getRedirectResult(auth).catch(() => undefined)
 
 /**
  * On first sign-in we seed the user's Firestore namespace with sensible defaults
@@ -180,8 +188,26 @@ async function ensureUserBootstrap(user: User): Promise<void> {
 
 /* ─────────── Auth actions ─────────── */
 
-export async function signInWithGoogle(): Promise<User> {
+/** Mobile browsers — especially iOS Safari with storage partitioning — choke
+ *  on popup-based OAuth, so we hand them off to the redirect flow instead. */
+function shouldUseRedirect(): boolean {
+  if (typeof navigator === 'undefined' || typeof window === 'undefined') return false
+  const ua = navigator.userAgent
+  const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(ua)
+  const isPwa =
+    window.matchMedia('(display-mode: standalone)').matches ||
+    (window.navigator as Navigator & { standalone?: boolean }).standalone === true
+  return isMobile || isPwa
+}
+
+export async function signInWithGoogle(): Promise<User | null> {
   const provider = new GoogleAuthProvider()
+  if (shouldUseRedirect()) {
+    /* Page navigates to Google here. Auth state is restored on return via
+       onAuthStateChanged + getRedirectResult at module load. */
+    await signInWithRedirect(auth, provider)
+    return null
+  }
   const result = await signInWithPopup(auth, provider)
   return result.user
 }
