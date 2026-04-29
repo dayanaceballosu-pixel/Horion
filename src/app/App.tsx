@@ -5,6 +5,7 @@ import { useIsDesktop } from '@shared/hooks/useMediaQuery'
 import { settingsRef } from '@/data/repositories/settings'
 import type { Settings } from '@/data/types'
 import { ThemeProvider } from '@shared/theme/ThemeProvider'
+import { InstallPrompt } from '@shared/components/InstallPrompt'
 import { MobileShell } from './MobileShell'
 import { DesktopShell } from './DesktopShell'
 import { TabBar } from './TabBar'
@@ -57,6 +58,7 @@ function AuthedApp() {
 
   return (
     <Shell {...shellProps}>
+      <InstallPrompt />
       <Switch>
         <Route path="/" component={HomeScreen} />
         <Route path="/finanzas" component={FinanzasScreen} />

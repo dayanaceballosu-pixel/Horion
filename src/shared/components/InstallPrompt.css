@@ -1,0 +1,181 @@
+/* Install prompt — uses Horión design tokens so it inherits theme automatically. */
+
+.horion-install-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+  animation: horion-install-fade 240ms ease forwards;
+}
+
+.horion-install-card {
+  background: var(--bg-elev);
+  color: var(--ink);
+  border-radius: 28px;
+  padding: 28px 24px calc(20px + env(safe-area-inset-bottom, 0px));
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  border: 0.5px solid var(--hairline);
+  box-shadow: 0 -4px 32px rgba(0, 0, 0, 0.18), 0 8px 32px rgba(0, 0, 0, 0.22);
+  animation: horion-install-slide-up 320ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+@media (min-width: 1024px) {
+  .horion-install-overlay {
+    align-items: center;
+    padding-bottom: 16px;
+  }
+  .horion-install-card {
+    border-radius: 24px;
+    animation: horion-install-pop 220ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+  }
+}
+
+.horion-install-logo {
+  width: 76px;
+  height: 76px;
+  border-radius: 20px;
+  object-fit: contain;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.22);
+}
+
+.horion-install-title {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 26px;
+  font-weight: 500;
+  color: var(--ink);
+  letter-spacing: -0.5px;
+  text-align: center;
+  margin-top: 4px;
+}
+
+.horion-install-desc {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--ink-mute);
+  text-align: center;
+  line-height: 1.5;
+  max-width: 320px;
+}
+
+.horion-install-btn-primary {
+  width: 100%;
+  padding: 14px 20px;
+  background: var(--ink);
+  color: var(--bg);
+  border: none;
+  border-radius: 99px;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  margin-top: 8px;
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.horion-install-btn-primary:hover {
+  opacity: 0.92;
+}
+
+.horion-install-btn-primary:active {
+  transform: scale(0.98);
+}
+
+.horion-install-btn-secondary {
+  background: transparent;
+  border: none;
+  color: var(--ink-mute);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  cursor: pointer;
+  padding: 10px 16px;
+  border-radius: 99px;
+  transition: color 160ms ease;
+  margin-top: 2px;
+}
+
+.horion-install-btn-secondary:hover {
+  color: var(--ink);
+}
+
+.horion-install-steps {
+  list-style: none;
+  padding: 0;
+  margin: 4px 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.horion-install-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  text-align: left;
+}
+
+.horion-step-num {
+  min-width: 28px;
+  height: 28px;
+  background: var(--accent);
+  color: #ffffff;
+  border-radius: 50%;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.horion-step-text {
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  color: var(--ink);
+  line-height: 1.5;
+  padding-top: 3px;
+}
+
+.horion-step-text strong {
+  font-weight: 600;
+}
+
+.horion-step-icon {
+  display: inline-block;
+  background: var(--bg-inset);
+  border-radius: 6px;
+  padding: 1px 6px;
+  font-size: 14px;
+  vertical-align: middle;
+  border: 0.5px solid var(--hairline);
+}
+
+@keyframes horion-install-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes horion-install-slide-up {
+  from { transform: translateY(60px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes horion-install-pop {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
