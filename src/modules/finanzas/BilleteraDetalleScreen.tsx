@@ -17,6 +17,7 @@ import {
   shiftMonth,
 } from '@shared/utils/format'
 import { TransactionModal } from './TransactionModal'
+import { TransactionActionsModal } from './TransactionActionsModal'
 
 export function BilleteraDetalleScreen() {
   const params = useParams<{ id: string }>()
@@ -38,6 +39,7 @@ export function BilleteraDetalleScreen() {
   const hidePrivate = useThemeStore((s) => s.hidePrivate)
   const [selectedMonth, setSelectedMonth] = useState<string>(todayIsoMonth())
   const [txModal, setTxModal] = useState<'in' | 'out' | null>(null)
+  const [selectedTx, setSelectedTx] = useState<Transaction | null>(null)
 
   const monthTxs = useMemo(
     () => allTxs.filter((t) => t.date.startsWith(selectedMonth)).sort((a, b) => b.createdAt - a.createdAt),
@@ -141,6 +143,7 @@ export function BilleteraDetalleScreen() {
           txs={monthTxs.filter((t) => t.type === 'in')}
           currency={currency}
           accent
+          onSelect={setSelectedTx}
         />
         <div style={{ height: 12 }} />
         <SubSection
@@ -148,6 +151,7 @@ export function BilleteraDetalleScreen() {
           empty="Sin egresos este mes."
           txs={monthTxs.filter((t) => t.type === 'out')}
           currency={currency}
+          onSelect={setSelectedTx}
         />
       </div>
 
@@ -157,6 +161,13 @@ export function BilleteraDetalleScreen() {
         wallets={wallet ? [wallet] : []}
         type={txModal ?? 'in'}
         initialWalletId={wallet?.id}
+      />
+
+      <TransactionActionsModal
+        tx={selectedTx}
+        wallets={wallet ? [wallet] : []}
+        currency={currency}
+        onClose={() => setSelectedTx(null)}
       />
     </div>
   )
@@ -334,12 +345,14 @@ function SubSection({
   txs,
   currency,
   accent,
+  onSelect,
 }: {
   title: string
   empty: string
   txs: Transaction[]
   currency: DisplayCurrency
   accent?: boolean
+  onSelect?: (tx: Transaction) => void
 }) {
   return (
     <div>
@@ -364,12 +377,15 @@ function SubSection({
           txs.map((r, i) => (
             <div
               key={r.id}
+              onClick={() => onSelect?.(r)}
+              role={onSelect ? 'button' : undefined}
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: 12,
                 padding: '12px 14px',
                 borderBottom: i < txs.length - 1 ? '0.5px solid var(--hairline)' : 'none',
+                cursor: onSelect ? 'pointer' : 'default',
               }}
             >
               <div

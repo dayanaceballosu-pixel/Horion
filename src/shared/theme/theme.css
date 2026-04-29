@@ -145,8 +145,12 @@ a {
 }
 .horion-tabbar-slot > * { pointer-events: auto; }
 
-/* Space so last content doesn't hide under the tab bar */
-.horion-main { padding-bottom: 96px; }
+/* Space so last content doesn't hide under the tab bar.
+   The tab bar itself is ~78px tall and absorbs env(safe-area-inset-bottom)
+   on notched devices, so we add the same env() here or content gets covered
+   on iPhones with home indicator (~34px). 96 base + safe-area = 96 on
+   non-notched, 130 on notched. */
+.horion-main { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
 
 /* Desktop / tablet: turn the column into a "phone canvas" */
 @media (min-width: 768px) {

@@ -10,6 +10,7 @@ import { Icon } from '@shared/icons/Icon'
 import { useThemeStore } from '@shared/theme/useTheme'
 import { formatMoneyRound, formatMonthLong, isoMonth as todayIsoMonth, shiftMonth } from '@shared/utils/format'
 import { TransactionModal } from './TransactionModal'
+import { TransactionActionsModal } from './TransactionActionsModal'
 import { WalletCard } from './WalletCard'
 
 export function FinanzasScreen() {
@@ -23,6 +24,7 @@ export function FinanzasScreen() {
 
   const [activeTab, setActiveTab] = useState<string>('all')
   const [txModal, setTxModal] = useState<'in' | 'out' | null>(null)
+  const [selectedTx, setSelectedTx] = useState<Transaction | null>(null)
 
   const totals = useMemo(() => totalsFor(txs, currency), [txs, currency])
   const perWallet = useMemo(() => perWalletTotals(txs, currency), [txs, currency])
@@ -155,6 +157,7 @@ export function FinanzasScreen() {
                 isLast={i === filtered.length - 1}
                 currency={currency}
                 wallets={wallets}
+                onClick={() => setSelectedTx(r)}
               />
             ))
           )}
@@ -188,6 +191,13 @@ export function FinanzasScreen() {
         onClose={() => setTxModal(null)}
         wallets={wallets}
         type={txModal ?? 'in'}
+      />
+
+      <TransactionActionsModal
+        tx={selectedTx}
+        wallets={wallets}
+        currency={currency}
+        onClose={() => setSelectedTx(null)}
       />
     </div>
   )
@@ -321,22 +331,27 @@ function TxRow({
   isLast,
   currency,
   wallets,
+  onClick,
 }: {
   tx: Transaction
   isLast: boolean
   currency: DisplayCurrency
   wallets: Wallet[]
+  onClick?: () => void
 }) {
   const wallet = wallets.find((w) => w.id === tx.walletId)
   const value = tx.snapshot?.[currency] ?? 0
   return (
     <div
+      onClick={onClick}
+      role={onClick ? 'button' : undefined}
       style={{
         display: 'flex',
         alignItems: 'center',
         gap: 12,
         padding: '12px 14px',
         borderBottom: isLast ? 'none' : '0.5px solid var(--hairline)',
+        cursor: onClick ? 'pointer' : 'default',
       }}
     >
       <div
