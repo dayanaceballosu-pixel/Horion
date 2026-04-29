@@ -10,24 +10,9 @@ import {
 } from 'firebase/firestore'
 import { getAuth, browserLocalPersistence, setPersistence, type Auth } from 'firebase/auth'
 
-/**
- * Use the current origin as the auth domain in production. Combined with the
- * Vercel rewrites that proxy `/__/auth/*` to the Firebase project, this keeps
- * the OAuth handshake same-origin and avoids iOS Safari's storage-partitioning
- * "missing initial state" error. In dev (localhost / 127.x), fall back to the
- * default Firebase auth domain since there are no rewrites locally.
- */
-function resolveAuthDomain(): string {
-  const fallback = import.meta.env.VITE_FB_AUTH_DOMAIN as string
-  if (typeof window === 'undefined') return fallback
-  const host = window.location.hostname
-  const isLocal = host === 'localhost' || host === '127.0.0.1' || host.startsWith('192.168.')
-  return isLocal ? fallback : window.location.host
-}
-
 const firebaseConfig: FirebaseOptions = {
   apiKey: import.meta.env.VITE_FB_API_KEY,
-  authDomain: resolveAuthDomain(),
+  authDomain: import.meta.env.VITE_FB_AUTH_DOMAIN,
   projectId: import.meta.env.VITE_FB_PROJECT_ID,
   storageBucket: import.meta.env.VITE_FB_STORAGE_BUCKET,
   messagingSenderId: import.meta.env.VITE_FB_MESSAGING_SENDER_ID,
