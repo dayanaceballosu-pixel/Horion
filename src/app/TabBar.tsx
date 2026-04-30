@@ -11,7 +11,7 @@ interface Tab {
 
 const TABS: Tab[] = [
   { to: '/', label: 'Inicio', icon: 'home', match: ['/'] },
-  { to: '/finanzas', label: 'Finanzas', icon: 'wallet', match: ['/finanzas', '/billetera', '/deudas', '/convertir'] },
+  { to: '/finanzas', label: 'Finanzas', icon: 'wallet', match: ['/finanzas', '/billetera', '/convertir'] },
   { to: '/estadisticas', label: 'Stats', icon: 'bar-chart', match: ['/estadisticas'] },
   { to: '/viajes', label: 'Viajes', icon: 'plane', match: ['/viajes', '/viaje'] },
   { to: '/inventario', label: 'Material', icon: 'box', match: ['/inventario'] },

@@ -164,28 +164,6 @@ export function FinanzasScreen() {
         </Card>
       </div>
 
-      {/* Cross-link to deudas */}
-      <div style={{ padding: '24px 20px 0' }}>
-        <Card onClick={() => navigate('/deudas')} padding={14}>
-          <Icon name="arrow-up" size={18} color="var(--accent)" />
-          <div
-            style={{
-              marginTop: 12,
-              fontFamily: 'var(--font-display)',
-              fontStyle: 'italic',
-              fontSize: 18,
-              color: 'var(--ink)',
-              lineHeight: 1,
-            }}
-          >
-            Deudas
-          </div>
-          <div style={{ marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-mute)' }}>
-            Por cobrar · pagar
-          </div>
-        </Card>
-      </div>
-
       <TransactionModal
         open={txModal !== null}
         onClose={() => setTxModal(null)}

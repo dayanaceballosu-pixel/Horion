@@ -1,12 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useLocation } from 'wouter'
-import { BackBar, Card, ModuleHeading, Pill, PrimaryButton, Progress, SectionTitle } from '@shared/components/primitives'
+import { Card, ModuleHeading, Pill, PrimaryButton, Progress, SectionTitle } from '@shared/components/primitives'
 import { Modal } from '@shared/components/Modal'
 import { TextField, SelectField } from '@shared/components/TextField'
 import { Icon } from '@shared/icons/Icon'
 import { CURRENCY_SYMBOLS, todayIso } from '@shared/utils/format'
-import { useCollection, useDoc } from '@shared/hooks/useFirestore'
-import { settingsRef } from '@/data/repositories/settings'
+import { useCollection } from '@shared/hooks/useFirestore'
 import {
   billUrgency,
   createDebt,
@@ -24,7 +22,7 @@ import {
   type PaymentAllocation,
 } from '@/data/repositories/debts'
 import { walletsQuery } from '@/data/repositories/wallets'
-import type { BillFrequency, CurrencyCode, Debt, DebtDirection, DebtPayment, FixedBill, Settings, Wallet } from '@/data/types'
+import type { BillFrequency, CurrencyCode, Debt, DebtDirection, DebtPayment, FixedBill, Wallet } from '@/data/types'
 
 const FREQUENCY_LABELS: Record<BillFrequency, string> = {
   weekly: 'Semanal',
@@ -60,7 +58,6 @@ function relativeDateLabel(iso: string, today: string): string {
 }
 
 export function DeudasScreen() {
-  const [, navigate] = useLocation()
   const [tab, setTab] = useState<DebtDirection>('iOwe')
   const debts = useCollection<Debt>(() => debtsQuery(), [])
   const wallets = useCollection<Wallet>(() => walletsQuery(), [])
@@ -102,7 +99,6 @@ export function DeudasScreen() {
 
   return (
     <div>
-      <BackBar label="Finanzas" onBack={() => navigate('/finanzas')} />
       <ModuleHeading kicker="Módulo 02" title="Deudas" subtitle="Lo que te deben y lo que debes — por persona." />
 
       {urgent.length > 0 && (
@@ -189,7 +185,7 @@ export function DeudasScreen() {
               marginTop: 6,
             }}
           >
-            +€{totalOwedToMe}
+            +${totalOwedToMe}
           </div>
           <div
             style={{
@@ -227,7 +223,7 @@ export function DeudasScreen() {
               marginTop: 6,
             }}
           >
-            −€{totalIOwe}
+            −${totalIOwe}
           </div>
           <div
             style={{
@@ -545,7 +541,6 @@ function NewDebtModal({
   const [paid, setPaid] = useState('')
   const [due, setDue] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const settings = useDoc<Settings>(() => settingsRef(), [])
 
   const reset = () => {
     setPerson('')
@@ -572,7 +567,7 @@ function NewDebtModal({
         direction,
         total: t,
         paid: p,
-        currency: settings?.defaultCurrency ?? 'COP',
+        currency: 'COP',
         due: due || undefined,
       })
       handleClose()
@@ -860,7 +855,6 @@ function AllocationsBlock({
 }
 
 function NewBillModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const settings = useDoc<Settings>(() => settingsRef(), [])
   const [name, setName] = useState('')
   const [amount, setAmount] = useState('')
   const [dueDate, setDueDate] = useState(todayIso())
@@ -890,7 +884,7 @@ function NewBillModal({ open, onClose }: { open: boolean; onClose: () => void })
       await createFixedBill({
         name,
         amount: a,
-        currency: settings?.defaultCurrency ?? 'COP',
+        currency: 'COP',
         dueDate,
         frequency,
       })
