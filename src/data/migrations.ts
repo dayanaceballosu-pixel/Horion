@@ -1,7 +1,7 @@
 import { deleteField, doc, getDoc, getDocs, updateDoc, writeBatch, type DocumentData } from 'firebase/firestore'
 import { db, userCol, userSubDoc } from './firebase'
 import { buildSnapshot } from './repositories/fx'
-import type { DisplayCurrency, Settings, Transaction } from './types'
+import type { DisplayCurrency, FixedBill, Settings, Transaction } from './types'
 
 /**
  * Schema version for the user's Firestore namespace. Bump it whenever we add
@@ -10,8 +10,10 @@ import type { DisplayCurrency, Settings, Transaction } from './types'
  *  v1 — adds `Transaction.snapshot` (3-currency snapshot) for legacy txs and
  *       removes the `balance` and `currency` fields from wallet/category docs
  *       (those concepts no longer exist after the registry rewrite).
+ *  v2 — converts `FixedBill.dueDay` (number 1-31) to `dueDate` (ISO date)
+ *       and stamps `frequency: 'monthly'` so the auto-advance logic works.
  */
-const TARGET_VERSION = 1
+const TARGET_VERSION = 2
 
 const VERSION_FIELD = 'schemaVersion'
 
@@ -28,6 +30,7 @@ export async function runMigrations(uid: string): Promise<void> {
   if (current >= TARGET_VERSION) return
 
   if (current < 1) await migrationV1(uid)
+  if (current < 2) await migrationV2(uid)
 
   await updateDoc(settingsRef, { [VERSION_FIELD]: TARGET_VERSION })
 }
@@ -75,4 +78,35 @@ async function migrationV1(uid: string): Promise<void> {
       }),
     )
   }
+}
+
+/** v2 — Fixed bills migrate from `dueDay: number` to `dueDate: string` with
+ *  an explicit `frequency`. Existing docs are assumed monthly (the only
+ *  possible cadence under v1). The next due date is computed as "this
+ *  month's day-N if not yet past, otherwise next month's day-N", which
+ *  preserves the user's intuition of when the bill is next due. */
+async function migrationV2(uid: string): Promise<void> {
+  const billsSnap = await getDocs(userCol(uid, 'fixedBills'))
+  const today = new Date()
+  const todayDay = today.getUTCDate()
+  const batch = writeBatch(db)
+  let writes = 0
+  billsSnap.forEach((d) => {
+    const data = d.data() as Partial<FixedBill> & { dueDay?: number }
+    if (data.dueDate && data.frequency) return /* already migrated */
+    const day = Math.max(1, Math.min(28, data.dueDay ?? 1))
+    /* If the day has not passed yet this month, use this month; otherwise
+     *  jump to the same day next month. Cap at day 28 for safety so we don't
+     *  generate invalid dates like Feb 30. */
+    const baseDate = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), day))
+    if (day < todayDay) baseDate.setUTCMonth(baseDate.getUTCMonth() + 1)
+    const dueDate = baseDate.toISOString().slice(0, 10)
+    batch.update(d.ref, {
+      dueDate,
+      frequency: 'monthly',
+      dueDay: deleteField(),
+    })
+    writes += 1
+  })
+  if (writes > 0) await batch.commit()
 }

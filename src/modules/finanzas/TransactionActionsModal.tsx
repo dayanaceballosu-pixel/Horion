@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Modal } from '@shared/components/Modal'
 import { Icon } from '@shared/icons/Icon'
 import { deleteTransaction } from '@/data/repositories/wallets'
@@ -33,6 +33,16 @@ export function TransactionActionsModal({ tx, wallets, currency, onClose }: Prop
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  /* Reset internal state every time the target tx changes (or the modal
+     re-opens with a different one). Without this, after a successful delete
+     the prior `busy` and `confirming` flags would persist and the next tx
+     opened would render with the disabled "Eliminando…" button forever. */
+  useEffect(() => {
+    setConfirming(false)
+    setBusy(false)
+    setError(null)
+  }, [tx?.id])
 
   if (!tx) return null
 

@@ -81,18 +81,29 @@ export interface DebtPayment {
   createdAt: number
 }
 
+/** How often a fixed bill repeats. Drives the auto-advance of `dueDate`
+ *  after each payment. */
+export type BillFrequency = 'weekly' | 'biweekly' | 'monthly' | 'bimonthly'
+
 export interface FixedBill {
   id: string
   name: string
   amount: number
   currency: CurrencyCode
-  /** day of month (1-31) */
-  dueDay: number
+  /** Next due date as ISO 'YYYY-MM-DD'. Auto-advances every time the bill
+   *  is marked paid, by one period of `frequency`. */
+  dueDate: string
+  /** Recurrence cadence — defaults to 'monthly' for legacy data migrated
+   *  from the old `dueDay` schema. */
+  frequency: BillFrequency
   walletId?: string
   active: boolean
   /** YYYY-MM marking the most recent month it was marked paid */
   lastPaidMonth?: string
   createdAt: number
+  /** @deprecated Legacy v1 field — only present on docs that haven't been
+   *  migrated yet. The migration converts this to `dueDate`. */
+  dueDay?: number
 }
 
 export type TripStatus = 'idea' | 'planning' | 'active' | 'archived'

@@ -14,7 +14,54 @@ import {
 import { clean, db, userCol, userSubDoc } from '../firebase'
 import { requireUid } from '../auth'
 import { createTransaction, uid } from './wallets'
-import type { CurrencyCode, Debt, DebtDirection, DebtPayment, DisplayCurrency, FixedBill } from '../types'
+import type {
+  BillFrequency,
+  CurrencyCode,
+  Debt,
+  DebtDirection,
+  DebtPayment,
+  DisplayCurrency,
+  FixedBill,
+} from '../types'
+
+/** A "split" allocation across one or more category wallets. The sum of the
+ *  amounts is what was paid in total. Used by both debt payments and fixed
+ *  bill payments to register the egress in 4 categories at once. */
+export interface PaymentAllocation {
+  walletId: string
+  amount: number
+}
+
+/** Advances an ISO date by one period of the given frequency. Used to roll
+ *  the next-due date of a bill forward each time it's paid. */
+export function advanceDueDate(iso: string, freq: BillFrequency): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  const date = new Date(Date.UTC(y, m - 1, d))
+  switch (freq) {
+    case 'weekly':
+      date.setUTCDate(date.getUTCDate() + 7)
+      break
+    case 'biweekly':
+      date.setUTCDate(date.getUTCDate() + 14)
+      break
+    case 'monthly':
+      date.setUTCMonth(date.getUTCMonth() + 1)
+      break
+    case 'bimonthly':
+      date.setUTCMonth(date.getUTCMonth() + 2)
+      break
+  }
+  return date.toISOString().slice(0, 10)
+}
+
+/** Days between today and an ISO due date. Negative = overdue. */
+export function daysUntil(iso: string, todayIso: string): number {
+  const [y1, m1, d1] = iso.split('-').map(Number)
+  const [y2, m2, d2] = todayIso.split('-').map(Number)
+  const a = Date.UTC(y1, m1 - 1, d1)
+  const b = Date.UTC(y2, m2 - 1, d2)
+  return Math.round((a - b) / 86_400_000)
+}
 
 /** Narrow CurrencyCode (which includes PLN, reserved for trips) to a
  *  DisplayCurrency. Anything outside COP/USD/EUR is recorded as COP — debts
@@ -41,8 +88,9 @@ export function debtsQuery(): Query<DocumentData> | null {
 
 export function fixedBillsQuery(): Query<DocumentData> | null {
   const u = safeUid()
-  /* Same rationale as tasks — no UI to deactivate, so we drop where(active). */
-  return u ? query(userCol(u, 'fixedBills'), orderBy('dueDay', 'asc')) : null
+  /* Order by next due date ascending — most urgent first. The migration
+   *  ensures every doc has `dueDate` before this query runs. */
+  return u ? query(userCol(u, 'fixedBills'), orderBy('dueDate', 'asc')) : null
 }
 
 /* ─────────── Reads ─────────── */
@@ -119,14 +167,23 @@ export async function deleteDebt(id: string): Promise<void> {
 
 export interface RegisterPaymentInput {
   debtId: string
+  /** Total amount paid (sum of all allocations). */
   amount: number
   date: string
-  walletId?: string
+  /** Per-category split. Default flow precomputes 4 equal slices but the
+   *  user may tweak them in the UI before submitting. Empty array is also
+   *  allowed — payment is recorded but no transactions are generated (rare
+   *  case where the user is just tracking that a payment happened off-app). */
+  allocations: PaymentAllocation[]
   notes?: string
 }
 
 export async function registerDebtPayment(input: RegisterPaymentInput): Promise<DebtPayment> {
   if (input.amount <= 0) throw new Error('El abono debe ser mayor a 0')
+  const sum = input.allocations.reduce((s, a) => s + a.amount, 0)
+  if (input.allocations.length > 0 && Math.abs(sum - input.amount) > 0.01) {
+    throw new Error('La suma del desglose no coincide con el total')
+  }
   const u = requireUid()
   const debtRef = userSubDoc(u, 'debts', input.debtId)
   const debtSnap = await getDoc(debtRef)
@@ -141,7 +198,6 @@ export async function registerDebtPayment(input: RegisterPaymentInput): Promise<
     debtId: input.debtId,
     amount: input.amount,
     date: input.date,
-    walletId: input.walletId,
     notes: input.notes,
     createdAt: Date.now(),
   }
@@ -153,13 +209,19 @@ export async function registerDebtPayment(input: RegisterPaymentInput): Promise<
   batch.update(debtRef, update)
   await batch.commit()
 
-  if (input.walletId) {
+  /* One transaction per non-zero allocation. The whole batch shares the same
+   *  source/sourceId so a delete cascade can find them later if needed. */
+  const txCurrency = asDisplayCurrency(debt.currency)
+  const txTitle = debt.direction === 'iOwe' ? `Pago a ${debt.person}` : `Cobro de ${debt.person}`
+  const txType = debt.direction === 'iOwe' ? 'out' : 'in'
+  for (const alloc of input.allocations) {
+    if (alloc.amount <= 0) continue
     await createTransaction({
-      walletId: input.walletId,
-      type: debt.direction === 'iOwe' ? 'out' : 'in',
-      amount: input.amount,
-      currency: asDisplayCurrency(debt.currency),
-      title: debt.direction === 'iOwe' ? `Pago a ${debt.person}` : `Cobro de ${debt.person}`,
+      walletId: alloc.walletId,
+      type: txType,
+      amount: alloc.amount,
+      currency: txCurrency,
+      title: txTitle,
       date: input.date,
       notes: input.notes,
       source: 'debt',
@@ -175,7 +237,10 @@ export interface CreateFixedBillInput {
   name: string
   amount: number
   currency: CurrencyCode
-  dueDay: number
+  /** Next due date as ISO 'YYYY-MM-DD'. */
+  dueDate: string
+  /** How often the bill repeats — drives the auto-advance after each pay. */
+  frequency: BillFrequency
   walletId?: string
 }
 export async function createFixedBill(input: CreateFixedBillInput): Promise<FixedBill> {
@@ -186,7 +251,8 @@ export async function createFixedBill(input: CreateFixedBillInput): Promise<Fixe
     name: input.name.trim(),
     amount: input.amount,
     currency: input.currency,
-    dueDay: Math.max(1, Math.min(31, input.dueDay)),
+    dueDate: input.dueDate,
+    frequency: input.frequency,
     walletId: input.walletId,
     active: true,
     createdAt: Date.now(),
@@ -195,37 +261,68 @@ export async function createFixedBill(input: CreateFixedBillInput): Promise<Fixe
   return bill
 }
 
+export async function updateFixedBill(id: string, patch: Partial<FixedBill>): Promise<void> {
+  const u = requireUid()
+  await updateDoc(userSubDoc(u, 'fixedBills', id), clean(patch))
+}
+
 export async function deleteFixedBill(id: string): Promise<void> {
   const u = requireUid()
   await deleteDoc(userSubDoc(u, 'fixedBills', id))
 }
 
-export async function markFixedBillPaid(billId: string, walletId: string, date: string): Promise<void> {
+export async function markFixedBillPaid(
+  billId: string,
+  allocations: PaymentAllocation[],
+  date: string,
+): Promise<void> {
   const u = requireUid()
   const billRef = userSubDoc(u, 'fixedBills', billId)
   const snap = await getDoc(billRef)
   if (!snap.exists()) return
   const bill = snap.data() as FixedBill
   const isoMonth = date.slice(0, 7)
+  const sum = allocations.reduce((s, a) => s + a.amount, 0)
+  if (allocations.length > 0 && Math.abs(sum - bill.amount) > 0.01) {
+    throw new Error('La suma del desglose no coincide con el monto del gasto')
+  }
 
-  /* Mark paid first (single write), then create the transaction (uses increment, 1 write to wallet + 1 write to tx). */
-  await updateDoc(billRef, { lastPaidMonth: isoMonth })
-  await createTransaction({
-    walletId,
-    type: 'out',
-    amount: bill.amount,
-    currency: asDisplayCurrency(bill.currency),
-    title: bill.name,
-    date,
-    source: 'fixedBill',
-    sourceId: bill.id,
-  })
+  /* Roll the next due date forward and persist the "last paid month" stamp
+   *  in a single write, then fan out one tx per allocation. */
+  const nextDue = advanceDueDate(bill.dueDate, bill.frequency)
+  await updateDoc(billRef, { lastPaidMonth: isoMonth, dueDate: nextDue })
+
+  const txCurrency = asDisplayCurrency(bill.currency)
+  for (const alloc of allocations) {
+    if (alloc.amount <= 0) continue
+    await createTransaction({
+      walletId: alloc.walletId,
+      type: 'out',
+      amount: alloc.amount,
+      currency: txCurrency,
+      title: bill.name,
+      date,
+      source: 'fixedBill',
+      sourceId: bill.id,
+    })
+  }
 }
 
-export function billUrgency(bill: FixedBill, todayDay: number): 'overdue' | 'urgent' | 'soon' | 'normal' {
-  const diff = bill.dueDay - todayDay
+/** Urgency now uses the actual ISO due date instead of an implicit day of
+ *  the current month. Caller passes today's ISO date so the function stays
+ *  pure / testable. */
+export function billUrgency(bill: FixedBill, todayIso: string): 'overdue' | 'urgent' | 'soon' | 'normal' {
+  const diff = daysUntil(bill.dueDate, todayIso)
   if (diff < 0) return 'overdue'
   if (diff <= 1) return 'urgent'
   if (diff <= 5) return 'soon'
   return 'normal'
+}
+
+/** Same urgency scale applied to a Debt's optional due date. Returns
+ *  'normal' if the debt has no due date set. */
+export function debtUrgency(debt: Debt, todayIso: string): 'overdue' | 'urgent' | 'soon' | 'normal' {
+  if (!debt.due) return 'normal'
+  if (debt.paid >= debt.total) return 'normal'
+  return billUrgency({ dueDate: debt.due } as FixedBill, todayIso)
 }

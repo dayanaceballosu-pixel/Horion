@@ -7,13 +7,18 @@ import { HorionMark, HorionWordmark } from '@shared/icons/HorionMark'
 import { transactionsForMonthQuery, walletsQuery } from '@/data/repositories/wallets'
 import { inventoryQuery, isLow } from '@/data/repositories/inventory'
 import { tripBreakeven, tripsQuery, tripTotalCost } from '@/data/repositories/trips'
-import { debtsQuery } from '@/data/repositories/debts'
+import {
+  billUrgency,
+  debtUrgency,
+  debtsQuery,
+  fixedBillsQuery,
+} from '@/data/repositories/debts'
 import { completionsByDateQuery, tasksQuery } from '@/data/repositories/bienestar'
 import { listPortfolio } from '@/data/repositories/portfolio'
 import { settingsRef } from '@/data/repositories/settings'
 import { useCollection, useDoc } from '@shared/hooks/useFirestore'
 import { useDisplayCurrency } from '@shared/hooks/useDisplayCurrency'
-import type { Debt, DisplayCurrency, InventoryItem, Settings, Task, TaskCompletion, Transaction, Trip, Wallet } from '@/data/types'
+import type { Debt, DisplayCurrency, FixedBill, InventoryItem, Settings, Task, TaskCompletion, Transaction, Trip, Wallet } from '@/data/types'
 import { useThemeStore } from '@shared/theme/useTheme'
 import { todayIso, isoMonth, CURRENCY_SYMBOLS, formatMoneyRound, formatDateLong } from '@shared/utils/format'
 import { useOnline } from '@shared/hooks/useOnline'
@@ -28,6 +33,7 @@ export function HomeScreen() {
   const wallets = useCollection<Wallet>(() => walletsQuery(), [])
   const trips = useCollection<Trip>(() => tripsQuery(), [])
   const debts = useCollection<Debt>(() => debtsQuery(), [])
+  const bills = useCollection<FixedBill>(() => fixedBillsQuery(), [])
   const inventory = useCollection<InventoryItem>(() => inventoryQuery(), [])
   const lowItems = inventory.filter(isLow)
   const tasks = useCollection<Task>(() => tasksQuery(), [])
@@ -47,13 +53,28 @@ export function HomeScreen() {
   const nextTripCost = activeTrip ? tripTotalCost(activeTrip.cost) : 0
   const nextTripBreakeven = activeTrip ? tripBreakeven(activeTrip.cost, activeTrip.avgPrice) : 0
   const debtsCount = debts.filter((d) => d.total - d.paid > 0).length
+  /* Count debts/bills urgent or overdue — surfaced as a small alert on the
+   *  Deudas bento card so the user notices from Inicio. */
+  const today = todayIso()
+  const urgentCount = useMemo(() => {
+    const debtsUrgent = debts.filter(
+      (d) => d.paid < d.total && (debtUrgency(d, today) === 'urgent' || debtUrgency(d, today) === 'overdue'),
+    ).length
+    const billsUrgent = bills.filter((b) => {
+      if (!b.dueDate) return false
+      if (b.lastPaidMonth === today.slice(0, 7)) return false
+      const ur = billUrgency(b, today)
+      return ur === 'urgent' || ur === 'overdue'
+    }).length
+    return debtsUrgent + billsUrgent
+  }, [debts, bills, today])
   const selectedPortfolio = portfolio.filter((p) => p.selected).length
 
   if (isDesktop) {
-    return <HomeDesktop {...{ navigate, settings, wallets, trips, debts, inventory, lowItems, tasks, completions, portfolio, hidePrivate, toggleHide, online, total, perWalletNet, currency, todayDone, activeTrip, nextTripCost, nextTripBreakeven, debtsCount, selectedPortfolio }} />
+    return <HomeDesktop {...{ navigate, settings, wallets, trips, debts, inventory, lowItems, tasks, completions, portfolio, hidePrivate, toggleHide, online, total, perWalletNet, currency, todayDone, activeTrip, nextTripCost, nextTripBreakeven, debtsCount, urgentCount, selectedPortfolio }} />
   }
 
-  return <HomeMobile {...{ navigate, settings, wallets, trips, debts, inventory, lowItems, tasks, completions, portfolio, hidePrivate, toggleHide, online, total, perWalletNet, currency, todayDone, activeTrip, nextTripCost, nextTripBreakeven, debtsCount, selectedPortfolio }} />
+  return <HomeMobile {...{ navigate, settings, wallets, trips, debts, inventory, lowItems, tasks, completions, portfolio, hidePrivate, toggleHide, online, total, perWalletNet, currency, todayDone, activeTrip, nextTripCost, nextTripBreakeven, debtsCount, urgentCount, selectedPortfolio }} />
 }
 
 function computeMonthTotals(txs: Transaction[], currency: DisplayCurrency): { total: number; perWalletNet: Record<string, number> } {
@@ -94,6 +115,8 @@ interface HomeProps {
   nextTripCost: number
   nextTripBreakeven: number
   debtsCount: number
+  /** Count of debts + fixed bills that are urgent (≤1d) or already overdue. */
+  urgentCount: number
   selectedPortfolio: number
 }
 
@@ -107,7 +130,7 @@ function homeSignedMoney(n: number, currency: DisplayCurrency, hide: boolean): s
 /* ═══════════════════════════════════════
    DESKTOP LAYOUT
 ═══════════════════════════════════════ */
-function HomeDesktop({ navigate, settings, wallets, tasks, completions, hidePrivate, toggleHide, online, total, perWalletNet, currency, todayDone, activeTrip, nextTripCost, nextTripBreakeven, debtsCount, lowItems, selectedPortfolio, portfolio }: HomeProps) {
+function HomeDesktop({ navigate, settings, wallets, tasks, completions, hidePrivate, toggleHide, online, total, perWalletNet, currency, todayDone, activeTrip, nextTripCost, nextTripBreakeven, debtsCount, urgentCount, lowItems, selectedPortfolio, portfolio }: HomeProps) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
       {/* Offline banner */}
@@ -258,7 +281,18 @@ function HomeDesktop({ navigate, settings, wallets, tasks, completions, hidePriv
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
               <BentoCard kicker="01" title="Finanzas" stat={homeSignedMoney(total, currency, hidePrivate)} icon="wallet" onClick={() => navigate('/finanzas')} />
               <BentoCard kicker="02" title="Viajes" stat={activeTrip ? `${activeTrip.sold}/${activeTrip.target} citas` : 'Sin viaje activo'} icon="plane" onClick={() => navigate('/viajes')} />
-              <BentoCard kicker="03" title="Deudas" stat={`${debtsCount} ${debtsCount === 1 ? 'persona' : 'personas'}`} icon="arrow-up" onClick={() => navigate('/deudas')} />
+              <BentoCard
+                kicker="03"
+                title="Deudas"
+                stat={
+                  urgentCount > 0
+                    ? `${urgentCount} ${urgentCount === 1 ? 'urgente' : 'urgentes'}`
+                    : `${debtsCount} ${debtsCount === 1 ? 'persona' : 'personas'}`
+                }
+                alert={urgentCount > 0}
+                icon="arrow-up"
+                onClick={() => navigate('/deudas')}
+              />
               <BentoCard kicker="04" title="Inventario" alert={lowItems.length > 0} stat={lowItems.length > 0 ? `${lowItems.length} bajos` : 'Todo OK'} icon="box" onClick={() => navigate('/inventario')} />
               <BentoCard kicker="05" title="Portafolio" stat={`${selectedPortfolio} / ${portfolio.length} sel.`} icon="image" onClick={() => navigate('/portafolio')} />
               <BentoCard kicker="06" title="Bienestar" stat={`${todayDone}/${tasks.length} hoy`} icon="heart" onClick={() => navigate('/bienestar')} />
@@ -329,7 +363,7 @@ function HomeDesktop({ navigate, settings, wallets, tasks, completions, hidePriv
 /* ═══════════════════════════════════════
    MOBILE LAYOUT (sin cambios)
 ═══════════════════════════════════════ */
-function HomeMobile({ navigate, settings, wallets, tasks, completions, hidePrivate, toggleHide, online, total, perWalletNet, currency, todayDone, activeTrip, nextTripCost, nextTripBreakeven, debtsCount, lowItems, selectedPortfolio, portfolio }: HomeProps) {
+function HomeMobile({ navigate, settings, wallets, tasks, completions, hidePrivate, toggleHide, online, total, perWalletNet, currency, todayDone, activeTrip, nextTripCost, nextTripBreakeven, debtsCount, urgentCount, lowItems, selectedPortfolio, portfolio }: HomeProps) {
   return (
     <div>
       <div style={{ padding: '12px 20px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -413,7 +447,18 @@ function HomeMobile({ navigate, settings, wallets, tasks, completions, hidePriva
         <div className="horion-bento" style={{ display: 'grid', gap: 10 }}>
           <BentoCard kicker="01 · Finanzas" title="Registro mensual" stat={homeSignedMoney(total, currency, hidePrivate)} icon="wallet" big onClick={() => navigate('/finanzas')} />
           <BentoCard kicker="02 · Próximo viaje" title={activeTrip ? activeTrip.city : 'Sin viaje'} stat={activeTrip ? `${activeTrip.sold}/${activeTrip.target} citas` : 'Crea uno'} icon="plane" onClick={() => navigate(activeTrip ? `/viaje/${activeTrip.id}` : '/viajes')} />
-          <BentoCard kicker="03 · Deudas" title="Por cobrar / pagar" stat={`${debtsCount} ${debtsCount === 1 ? 'persona' : 'personas'}`} icon="arrow-up" onClick={() => navigate('/deudas')} />
+          <BentoCard
+            kicker="03 · Deudas"
+            title={urgentCount > 0 ? '⚠ Próximas a vencer' : 'Por cobrar / pagar'}
+            stat={
+              urgentCount > 0
+                ? `${urgentCount} ${urgentCount === 1 ? 'urgente' : 'urgentes'}`
+                : `${debtsCount} ${debtsCount === 1 ? 'persona' : 'personas'}`
+            }
+            alert={urgentCount > 0}
+            icon="arrow-up"
+            onClick={() => navigate('/deudas')}
+          />
           <BentoCard kicker="04 · Inventario" title="Material" alert={lowItems.length > 0} stat={lowItems.length > 0 ? `${lowItems.length} bajos` : 'Todo OK'} icon="box" onClick={() => navigate('/inventario')} />
           <BentoCard kicker="05 · Portafolio" title="Book del mes" stat={`${selectedPortfolio} / ${portfolio.length} sel.`} icon="image" onClick={() => navigate('/portafolio')} />
           <BentoCard kicker="06 · Bienestar" title="Ciclo + tareas" stat={`${todayDone}/${tasks.length}`} icon="heart" onClick={() => navigate('/bienestar')} />
