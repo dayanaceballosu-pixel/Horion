@@ -22,7 +22,9 @@ import {
   type PaymentAllocation,
 } from '@/data/repositories/debts'
 import { walletsQuery } from '@/data/repositories/wallets'
-import type { BillFrequency, CurrencyCode, Debt, DebtDirection, DebtPayment, FixedBill, Wallet } from '@/data/types'
+import { accountsQuery } from '@/data/repositories/accounts'
+import type { Account, BillFrequency, CurrencyCode, Debt, DebtDirection, DebtPayment, FixedBill, Wallet } from '@/data/types'
+import { ACCOUNT_KIND_META } from '@modules/finanzas/accountKinds'
 
 const FREQUENCY_LABELS: Record<BillFrequency, string> = {
   weekly: 'Semanal',
@@ -615,8 +617,10 @@ function NewDebtModal({
 
 function PaymentModal({ debt, onClose }: { debt: Debt | null; onClose: () => void }) {
   const wallets = useCollection<Wallet>(() => walletsQuery(), [])
+  const accounts = useCollection<Account>(() => accountsQuery(), [])
   const [amount, setAmount] = useState('')
   const [date, setDate] = useState(todayIso())
+  const [accountId, setAccountId] = useState('')
   const [splits, setSplits] = useState<Record<string, string>>({})
   const [error, setError] = useState<string | null>(null)
 
@@ -644,8 +648,16 @@ function PaymentModal({ debt, onClose }: { debt: Debt | null; onClose: () => voi
       setTouched(false)
       setError(null)
       setDate(todayIso())
+      setAccountId(accounts[0]?.id ?? '')
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debt?.id])
+
+  /* Pick a default account once they load (the modal can open before the
+     accounts query resolves). */
+  useEffect(() => {
+    if (!accountId && accounts.length > 0) setAccountId(accounts[0].id)
+  }, [accounts, accountId])
 
   if (!debt) return null
 
@@ -681,6 +693,7 @@ function PaymentModal({ debt, onClose }: { debt: Debt | null; onClose: () => voi
         debtId: debt.id,
         amount: total,
         date,
+        accountId: accountId || undefined,
         allocations: allocations.filter((a) => a.amount > 0),
       })
       onClose()
@@ -699,6 +712,20 @@ function PaymentModal({ debt, onClose }: { debt: Debt | null; onClose: () => voi
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <TextField label="Monto total" value={amount} onChange={setAmount} inputMode="decimal" placeholder="0" />
         <TextField label="Fecha" value={date} onChange={setDate} type="date" />
+
+        <SelectField
+          label={debt.direction === 'iOwe' ? 'Cuenta de donde sale' : 'Cuenta donde entra'}
+          value={accountId}
+          onChange={setAccountId}
+          options={
+            accounts.length > 0
+              ? accounts.map((a) => ({
+                  value: a.id,
+                  label: `${a.name} · ${ACCOUNT_KIND_META[a.kind].short}`,
+                }))
+              : [{ value: '', label: 'Sin cuentas — se omite el movimiento' }]
+          }
+        />
 
         <AllocationsBlock
           wallets={wallets}
@@ -940,7 +967,9 @@ function NewBillModal({ open, onClose }: { open: boolean; onClose: () => void })
 /** Pay a fixed bill — same allocation UX as a debt payment. */
 function BillPaymentModal({ bill, onClose }: { bill: FixedBill | null; onClose: () => void }) {
   const wallets = useCollection<Wallet>(() => walletsQuery(), [])
+  const accounts = useCollection<Account>(() => accountsQuery(), [])
   const [date, setDate] = useState(todayIso())
+  const [accountId, setAccountId] = useState('')
   const [splits, setSplits] = useState<Record<string, string>>({})
   const [touched, setTouched] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -954,8 +983,14 @@ function BillPaymentModal({ bill, onClose }: { bill: FixedBill | null; onClose: 
       setTouched(false)
       setError(null)
       setBusy(false)
+      setAccountId(accounts[0]?.id ?? '')
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bill?.id])
+
+  useEffect(() => {
+    if (!accountId && accounts.length > 0) setAccountId(accounts[0].id)
+  }, [accounts, accountId])
 
   /* Pre-fill 25% per category whenever the bill or wallets change. */
   useEffect(() => {
@@ -995,7 +1030,12 @@ function BillPaymentModal({ bill, onClose }: { bill: FixedBill | null; onClose: 
     if (mismatch) return setError(`La suma del desglose no coincide con ${CURRENCY_SYMBOLS[bill.currency]}${bill.amount}`)
     setBusy(true)
     try {
-      await markFixedBillPaid(bill.id, allocations.filter((a) => a.amount > 0), date)
+      await markFixedBillPaid(
+        bill.id,
+        allocations.filter((a) => a.amount > 0),
+        date,
+        accountId || undefined,
+      )
       onClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error')
@@ -1051,6 +1091,20 @@ function BillPaymentModal({ bill, onClose }: { bill: FixedBill | null; onClose: 
         </div>
 
         <TextField label="Fecha del pago" value={date} onChange={setDate} type="date" />
+
+        <SelectField
+          label="Cuenta de donde sale"
+          value={accountId}
+          onChange={setAccountId}
+          options={
+            accounts.length > 0
+              ? accounts.map((a) => ({
+                  value: a.id,
+                  label: `${a.name} · ${ACCOUNT_KIND_META[a.kind].short}`,
+                }))
+              : [{ value: '', label: 'Sin cuentas — se omite el movimiento' }]
+          }
+        />
 
         <AllocationsBlock
           wallets={wallets}

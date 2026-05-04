@@ -81,10 +81,15 @@ function computeMonthTotals(txs: Transaction[], currency: DisplayCurrency): { to
   let total = 0
   const perWalletNet: Record<string, number> = {}
   for (const t of txs) {
+    /* Skip transfer legs — they're internal moves between accounts and would
+       skew per-category totals if included. */
+    if (t.source === 'transfer') continue
     const v = t.snapshot?.[currency] ?? 0
     const signed = t.type === 'in' ? v : -v
     total += signed
-    perWalletNet[t.walletId] = (perWalletNet[t.walletId] ?? 0) + signed
+    if (t.walletId) {
+      perWalletNet[t.walletId] = (perWalletNet[t.walletId] ?? 0) + signed
+    }
   }
   return { total, perWalletNet }
 }

@@ -18,6 +18,19 @@ import { requireUid } from '../auth'
 import type { DisplayCurrency, Transaction, TxType, Wallet, WalletTone } from '../types'
 import { buildSnapshot } from './fx'
 
+/* Lazy import to avoid an import cycle with accounts.ts (which imports `uid`
+   from this file). Used after every tx mutation so the cached account balance
+   stays correct without callers having to remember to recompute. */
+async function recomputeBalance(accountId: string | undefined): Promise<void> {
+  if (!accountId) return
+  const { recomputeAccountBalance } = await import('./accounts')
+  try {
+    await recomputeAccountBalance(accountId)
+  } catch {
+    /* Account may have been deleted — ignore. */
+  }
+}
+
 const uid = (): string => Math.random().toString(36).slice(2, 11) + Date.now().toString(36)
 
 /* ─────────── Live queries (used with useCollection hook) ─────────── */
@@ -105,7 +118,12 @@ export async function archiveWallet(id: string): Promise<void> {
 /* ─────────── Transactions ─────────── */
 
 export interface CreateTransactionInput {
-  walletId: string
+  walletId?: string
+  /** Account where the money lives. Required for all manual flows now; left
+   *  optional in the type so legacy callers (debt payments, goal allocations,
+   *  fixed bills) can transition without breaking — they default to the
+   *  user's primary account when none is supplied. */
+  accountId?: string
   type: TxType
   amount: number
   /** Original currency the user typed the amount in. Restricted to the three
@@ -118,14 +136,30 @@ export interface CreateTransactionInput {
   sourceId?: string
 }
 
+/** Picks the account a tx should land in when the caller didn't specify one
+ *  (legacy code paths). Prefers the first non-archived account by createdAt,
+ *  which after migration is "Efectivo" — the bucket where untracked legacy
+ *  flows live. Returns undefined if the user truly has no accounts yet. */
+async function pickDefaultAccountId(): Promise<string | undefined> {
+  const u = requireUid()
+  const snap = await getDocs(query(userCol(u, 'accounts'), orderBy('createdAt', 'asc')))
+  for (const d of snap.docs) {
+    const a = d.data() as { id: string; archived?: boolean }
+    if (!a.archived) return a.id
+  }
+  return undefined
+}
+
 export async function createTransaction(input: CreateTransactionInput): Promise<Transaction> {
   if (input.amount <= 0) throw new Error('El monto debe ser mayor a 0')
   const u = requireUid()
   const id = uid()
   const snapshot = await buildSnapshot(input.amount, input.currency)
+  const accountId = input.accountId ?? (await pickDefaultAccountId())
   const tx: Transaction = {
     id,
     walletId: input.walletId,
+    accountId,
     type: input.type,
     amount: input.amount,
     currency: input.currency,
@@ -138,12 +172,18 @@ export async function createTransaction(input: CreateTransactionInput): Promise<
     sourceId: input.sourceId,
   }
   await setDoc(userSubDoc(u, 'transactions', id), clean(tx))
+  await recomputeBalance(accountId)
   return tx
 }
 
 export async function deleteTransaction(id: string): Promise<void> {
   const u = requireUid()
-  await deleteDoc(userSubDoc(u, 'transactions', id))
+  /* Capture the affected account before deletion so we can recompute after. */
+  const ref = userSubDoc(u, 'transactions', id)
+  const snap = await getDoc(ref)
+  const accountId = snap.exists() ? (snap.data() as Transaction).accountId : undefined
+  await deleteDoc(ref)
+  await recomputeBalance(accountId)
 }
 
 export async function listTransactions(filter?: { walletId?: string; limit?: number }): Promise<Transaction[]> {

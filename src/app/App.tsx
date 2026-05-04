@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Route, Switch, useLocation } from 'wouter'
 import { hasPasswordProvider, useAuthStore } from '@/data/auth'
 import { useDoc } from '@shared/hooks/useFirestore'
@@ -13,10 +13,14 @@ import { DesktopShell } from './DesktopShell'
 import { TabBar } from './TabBar'
 import { LoginScreen } from '@modules/auth/LoginScreen'
 import { PasswordSetupScreen } from '@modules/auth/PasswordSetupScreen'
+import { TutorialOverlay } from '@modules/tutorial/TutorialOverlay'
+import { useTutorialStore } from '@modules/tutorial/useTutorial'
 
 import { HomeScreen } from '@modules/home/HomeScreen'
 import { FinanzasScreen } from '@modules/finanzas/FinanzasScreen'
 import { BilleteraDetalleScreen } from '@modules/finanzas/BilleteraDetalleScreen'
+import { CuentasScreen } from '@modules/finanzas/CuentasScreen'
+import { CuentaDetalleScreen } from '@modules/finanzas/CuentaDetalleScreen'
 import { ConvertirScreen } from '@modules/finanzas/ConvertirScreen'
 import { EstadisticasScreen } from '@modules/finanzas/EstadisticasScreen'
 import { DeudasScreen } from '@modules/deudas/DeudasScreen'
@@ -62,6 +66,34 @@ function AuthedApp() {
      store so the user's choice follows them across devices. */
   useThemeSync()
 
+  /* Auto-start the first-run tutorial. The dock fires the next time the
+     user lands on a routed screen with onboarding done and the tutorial flag
+     unset. Settings can re-emit constantly (theme toggle, palette swap, etc.)
+     so we explicitly skip when a tour is already in progress to avoid
+     resetting it back to step 0. */
+  const tutorialActive = useTutorialStore((s) => s.active)
+  useEffect(() => {
+    if (!settings) return
+    if (!settings.onboardingCompleted) return
+    if (settings.tutorialCompleted) return
+    if (useTutorialStore.getState().active !== null) return
+    /* Slight delay so the user lands on the home screen before the dock
+       slides in — otherwise it competes with the splash transition. */
+    const t = setTimeout(() => {
+      if (useTutorialStore.getState().active === null) {
+        useTutorialStore.getState().start()
+      }
+    }, 600)
+    return () => clearTimeout(t)
+  }, [settings])
+
+  /* When the signed-in user changes, blow away any in-flight tour from the
+     previous session so the new user starts clean. */
+  const currentUid = user?.uid
+  useEffect(() => {
+    useTutorialStore.setState({ active: null })
+  }, [currentUid])
+
   /* settings is undefined while the bootstrap doc is being created — show splash. */
   if (!settings) return <Splash label="Preparando tu Horión…" />
   if (!settings.onboardingCompleted) {
@@ -89,9 +121,12 @@ function AuthedApp() {
   return (
     <Shell {...shellProps}>
       <InstallPrompt />
+      {tutorialActive !== null && <TutorialOverlay />}
       <Switch>
         <Route path="/" component={HomeScreen} />
         <Route path="/finanzas" component={FinanzasScreen} />
+        <Route path="/cuentas" component={CuentasScreen} />
+        <Route path="/cuenta/:id" component={CuentaDetalleScreen} />
         <Route path="/billetera/:id" component={BilleteraDetalleScreen} />
         <Route path="/convertir" component={ConvertirScreen} />
         <Route path="/estadisticas" component={EstadisticasScreen} />

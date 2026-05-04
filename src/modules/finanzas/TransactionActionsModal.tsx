@@ -2,12 +2,14 @@ import { useEffect, useState } from 'react'
 import { Modal } from '@shared/components/Modal'
 import { Icon } from '@shared/icons/Icon'
 import { deleteTransaction } from '@/data/repositories/wallets'
-import type { DisplayCurrency, Transaction, Wallet } from '@/data/types'
+import { deleteTransfer } from '@/data/repositories/accounts'
+import type { Account, DisplayCurrency, Transaction, Wallet } from '@/data/types'
 import { CURRENCY_SYMBOLS, formatMoneyRound } from '@shared/utils/format'
 
 interface Props {
   tx: Transaction | null
   wallets: Wallet[]
+  accounts: Account[]
   currency: DisplayCurrency
   onClose: () => void
 }
@@ -18,6 +20,8 @@ const SOURCE_LABELS: Record<NonNullable<Transaction['source']>, string> = {
   goal: 'Aporte a una meta',
   fixedBill: 'Gasto fijo',
   trip: 'Viaje',
+  transfer: 'Transferencia entre cuentas',
+  adjustment: 'Ajuste de saldo',
 }
 
 /**
@@ -29,7 +33,7 @@ const SOURCE_LABELS: Record<NonNullable<Transaction['source']>, string> = {
  * warning banner because deleting them only removes the registry entry —
  * the underlying debt payment / goal allocation / etc. stays in place.
  */
-export function TransactionActionsModal({ tx, wallets, currency, onClose }: Props) {
+export function TransactionActionsModal({ tx, wallets, accounts, currency, onClose }: Props) {
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -47,15 +51,24 @@ export function TransactionActionsModal({ tx, wallets, currency, onClose }: Prop
   if (!tx) return null
 
   const wallet = wallets.find((w) => w.id === tx.walletId)
+  const account = accounts.find((a) => a.id === tx.accountId)
   const sourceLabel = tx.source && tx.source !== 'manual' ? SOURCE_LABELS[tx.source] : null
-  const isAutoCreated = sourceLabel !== null
+  /* Auto-created warning only fires for upstream-source movements. Transfers
+     and adjustments are user-driven from this app, so deleting them is safe
+     and reversible — no warning needed. */
+  const isAutoCreated = sourceLabel !== null && tx.source !== 'transfer' && tx.source !== 'adjustment'
   const originalSym = CURRENCY_SYMBOLS[tx.currency] ?? '$'
+  const isTransfer = tx.source === 'transfer'
 
   const handleDelete = async () => {
     setError(null)
     setBusy(true)
     try {
-      await deleteTransaction(tx.id)
+      if (isTransfer && tx.transferGroupId) {
+        await deleteTransfer(tx.transferGroupId)
+      } else {
+        await deleteTransaction(tx.id)
+      }
       onClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo eliminar')
@@ -122,6 +135,7 @@ export function TransactionActionsModal({ tx, wallets, currency, onClose }: Prop
         </div>
 
         <DetailRow label="Detalle" value={tx.title} />
+        {account && <DetailRow label="Cuenta" value={account.name} />}
         {wallet && <DetailRow label="Categoría" value={wallet.name} />}
         <DetailRow label="Fecha" value={tx.date} />
         {sourceLabel && <DetailRow label="Origen" value={sourceLabel} />}

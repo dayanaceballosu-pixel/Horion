@@ -1,7 +1,7 @@
 import { deleteField, doc, getDoc, getDocs, updateDoc, writeBatch, type DocumentData } from 'firebase/firestore'
-import { db, userCol, userSubDoc } from './firebase'
+import { clean, db, userCol, userSubDoc } from './firebase'
 import { buildSnapshot } from './repositories/fx'
-import type { DisplayCurrency, FixedBill, Settings, Transaction } from './types'
+import type { Account, DisplayCurrency, FixedBill, Settings, Transaction } from './types'
 
 /**
  * Schema version for the user's Firestore namespace. Bump it whenever we add
@@ -12,8 +12,11 @@ import type { DisplayCurrency, FixedBill, Settings, Transaction } from './types'
  *       (those concepts no longer exist after the registry rewrite).
  *  v2 — converts `FixedBill.dueDay` (number 1-31) to `dueDate` (ISO date)
  *       and stamps `frequency: 'monthly'` so the auto-advance logic works.
+ *  v3 — introduces `Account` (Efectivo / Nequi / Daviplata seed) and
+ *       backfills `Transaction.accountId` so every existing tx points at
+ *       Efectivo. This is the change that unlocks real-time balances.
  */
-const TARGET_VERSION = 2
+const TARGET_VERSION = 3
 
 const VERSION_FIELD = 'schemaVersion'
 
@@ -31,6 +34,7 @@ export async function runMigrations(uid: string): Promise<void> {
 
   if (current < 1) await migrationV1(uid)
   if (current < 2) await migrationV2(uid)
+  if (current < 3) await migrationV3(uid)
 
   await updateDoc(settingsRef, { [VERSION_FIELD]: TARGET_VERSION })
 }
@@ -77,6 +81,84 @@ async function migrationV1(uid: string): Promise<void> {
         await updateDoc(doc(userCol(uid, 'transactions'), d.id), { snapshot })
       }),
     )
+  }
+}
+
+/** v3 — Real accounts (Efectivo / Nequi / Daviplata) and backfill of every
+ *  transaction with `accountId`. Existing flows had no concept of "where the
+ *  money lives", so we land everything in Efectivo by default. The user can
+ *  redistribute movements later from the action sheet, or simply log new
+ *  movements against the right account going forward.
+ *
+ *  Idempotent: skips seeds that already exist (a re-run after partial failure
+ *  doesn't duplicate accounts) and only stamps `accountId` on txs that lack it. */
+async function migrationV3(uid: string): Promise<void> {
+  const accountsCol = userCol(uid, 'accounts')
+  const accountsSnap = await getDocs(accountsCol)
+  const existingIds = new Set<string>(accountsSnap.docs.map((d) => d.id))
+
+  const now = Date.now()
+  /* The first account in createdAt order becomes the legacy bucket — keep
+   *  Efectivo at index 0 so backfilled txs land somewhere recognisable. */
+  const seed: Array<Pick<Account, 'id' | 'name' | 'kind' | 'currency'> & { initialBalance?: number }> = [
+    { id: 'a_efectivo',  name: 'Efectivo',  kind: 'cash',      currency: 'COP' },
+    { id: 'a_nequi',     name: 'Nequi',     kind: 'nequi',     currency: 'COP' },
+    { id: 'a_daviplata', name: 'Daviplata', kind: 'daviplata', currency: 'COP' },
+  ]
+
+  const accountBatch = writeBatch(db)
+  let writes = 0
+  seed.forEach((s, i) => {
+    if (existingIds.has(s.id)) return
+    const acc: Account = {
+      id: s.id,
+      name: s.name,
+      kind: s.kind,
+      currency: s.currency,
+      initialBalance: 0,
+      balance: 0,
+      balanceUpdatedAt: now + i,
+      order: i,
+      createdAt: now + i,
+    }
+    accountBatch.set(userSubDoc(uid, 'accounts', s.id), clean(acc))
+    writes += 1
+  })
+  if (writes > 0) await accountBatch.commit()
+
+  /* Backfill `accountId` on every existing transaction. We point them at the
+   *  first existing account (Efectivo after seeding). Done in chunks because
+   *  Firestore batches cap at 500 ops. */
+  const txsSnap = await getDocs(userCol(uid, 'transactions'))
+  const stale = txsSnap.docs.filter((d) => {
+    const data = d.data() as Partial<Transaction>
+    return !data.accountId
+  })
+
+  const fallbackId = existingIds.has('a_efectivo') || writes > 0
+    ? 'a_efectivo'
+    : (accountsSnap.docs[0]?.id ?? 'a_efectivo')
+
+  let chunk = stale.slice()
+  while (chunk.length) {
+    const slice = chunk.splice(0, 400)
+    const batch = writeBatch(db)
+    slice.forEach((d) => batch.update(d.ref, { accountId: fallbackId }))
+    await batch.commit()
+  }
+
+  /* Recompute balances now that every tx has an accountId. Lazy-import the
+   *  repo to avoid pulling the auth context inside the migrations module. */
+  const { recomputeAccountBalance } = await import('./repositories/accounts')
+  for (const s of seed) {
+    if (!existingIds.has(s.id)) {
+      try {
+        await recomputeAccountBalance(s.id)
+      } catch {
+        /* swallow — the account exists but recompute may transiently fail
+           if the user has no transactions yet. */
+      }
+    }
   }
 }
 

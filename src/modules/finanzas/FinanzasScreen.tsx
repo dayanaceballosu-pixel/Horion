@@ -1,7 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useLocation } from 'wouter'
 import { transactionsForMonthQuery, walletsQuery } from '@/data/repositories/wallets'
-import type { DisplayCurrency, Transaction, Wallet } from '@/data/types'
+import { accountsQuery } from '@/data/repositories/accounts'
+import { getRate } from '@/data/repositories/fx'
+import type { Account, DisplayCurrency, Transaction, Wallet } from '@/data/types'
 import { useCollection } from '@shared/hooks/useFirestore'
 import { useDisplayCurrency } from '@shared/hooks/useDisplayCurrency'
 import { ActionChip, Card, ModuleHeading, SectionTitle } from '@shared/components/primitives'
@@ -11,11 +13,19 @@ import { useThemeStore } from '@shared/theme/useTheme'
 import { formatMoneyRound, formatMonthLong, isoMonth as todayIsoMonth, shiftMonth } from '@shared/utils/format'
 import { TransactionModal } from './TransactionModal'
 import { TransactionActionsModal } from './TransactionActionsModal'
+import { TransferModal } from './TransferModal'
+import { CuentaEditModal } from './CuentaEditModal'
+import { AccountCard } from './AccountCard'
 import { WalletCard } from './WalletCard'
+
+function asDisplay(c: Account['currency']): DisplayCurrency {
+  return c === 'USD' || c === 'EUR' ? c : 'COP'
+}
 
 export function FinanzasScreen() {
   const [, navigate] = useLocation()
   const wallets = useCollection<Wallet>(() => walletsQuery(), [])
+  const accounts = useCollection<Account>(() => accountsQuery(), [])
   const { currency } = useDisplayCurrency()
   const hidePrivate = useThemeStore((s) => s.hidePrivate)
 
@@ -24,12 +34,45 @@ export function FinanzasScreen() {
 
   const [activeTab, setActiveTab] = useState<string>('all')
   const [txModal, setTxModal] = useState<'in' | 'out' | null>(null)
+  const [showTransfer, setShowTransfer] = useState(false)
+  const [showCreateAccount, setShowCreateAccount] = useState(false)
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null)
+
+  /* Total across accounts, normalized to the user's display currency. */
+  const [convertedBalances, setConvertedBalances] = useState<Record<string, number>>({})
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const next: Record<string, number> = {}
+      for (const a of accounts) {
+        const native = asDisplay(a.currency)
+        if (native === currency) {
+          next[a.id] = a.balance
+          continue
+        }
+        const rate = await getRate(native, currency)
+        next[a.id] = a.balance * rate
+      }
+      if (!cancelled) setConvertedBalances(next)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [accounts, currency])
+  const totalAccounts = useMemo(
+    () => accounts.reduce((s, a) => s + (convertedBalances[a.id] ?? a.balance), 0),
+    [accounts, convertedBalances],
+  )
 
   const totals = useMemo(() => totalsFor(txs, currency), [txs, currency])
   const perWallet = useMemo(() => perWalletTotals(txs, currency), [txs, currency])
   const filtered = useMemo(() => {
-    const sorted = [...txs].sort((a, b) => b.createdAt - a.createdAt)
+    /* Drop transfer legs from the global movements list — they're book-keeping
+       between accounts, not income/expense. They stay visible inside each
+       account's detail screen where they actually mean something. */
+    const sorted = [...txs]
+      .filter((t) => t.source !== 'transfer')
+      .sort((a, b) => b.createdAt - a.createdAt)
     return activeTab === 'all' ? sorted : sorted.filter((r) => r.walletId === activeTab)
   }, [txs, activeTab])
 
@@ -38,11 +81,115 @@ export function FinanzasScreen() {
       <ModuleHeading
         kicker="Módulo 01"
         title="Finanzas"
-        subtitle="Registro de ganancias y gastos por categoría."
+        subtitle="Tu plata, día a día."
       />
 
+      {/* Accounts strip — saldo total + cards horizontales */}
+      <div data-tutorial="accounts-strip" style={{ padding: '20px 20px 0' }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'baseline',
+            justifyContent: 'space-between',
+            marginBottom: 10,
+            paddingRight: 4,
+          }}
+        >
+          <div data-tutorial="total-disponible">
+            <div
+              style={{
+                fontFamily: 'var(--font-mono)',
+                fontSize: 9,
+                color: 'var(--accent)',
+                letterSpacing: 1.5,
+                textTransform: 'uppercase',
+              }}
+            >
+              Total disponible
+            </div>
+            <div
+              style={{
+                fontFamily: 'var(--font-mono)',
+                fontSize: 26,
+                fontWeight: 600,
+                color: 'var(--ink)',
+                letterSpacing: -0.6,
+                marginTop: 2,
+              }}
+            >
+              {hidePrivate ? '••••' : formatMoneyRound(totalAccounts, currency)}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => navigate('/cuentas')}
+            style={{
+              border: 'none',
+              background: 'transparent',
+              cursor: 'pointer',
+              fontFamily: 'var(--font-sans)',
+              fontSize: 12,
+              fontWeight: 500,
+              color: 'var(--accent)',
+              padding: 0,
+            }}
+          >
+            Gestionar →
+          </button>
+        </div>
+
+        <div
+          style={{
+            display: 'flex',
+            gap: 10,
+            overflowX: 'auto',
+            paddingBottom: 6,
+            marginRight: -20,
+            paddingRight: 20,
+            scrollSnapType: 'x mandatory',
+          }}
+        >
+          {accounts.map((a) => (
+            <div key={a.id} style={{ scrollSnapAlign: 'start' }}>
+              <AccountCard
+                account={a}
+                hidePrivate={hidePrivate}
+                onClick={() => navigate(`/cuenta/${a.id}`)}
+              />
+            </div>
+          ))}
+          <button
+            type="button"
+            data-tutorial="new-account"
+            onClick={() => setShowCreateAccount(true)}
+            style={{
+              flex: '0 0 auto',
+              width: 120,
+              height: 108,
+              borderRadius: 18,
+              border: '0.5px dashed var(--hairline)',
+              background: 'var(--bg-card)',
+              color: 'var(--ink-mute)',
+              cursor: 'pointer',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 6,
+              fontFamily: 'var(--font-sans)',
+              fontSize: 12,
+              fontWeight: 500,
+              scrollSnapAlign: 'start',
+            }}
+          >
+            <Icon name="plus" size={18} color="var(--ink-mute)" />
+            Nueva cuenta
+          </button>
+        </div>
+      </div>
+
       {/* Month nav + currency toggle */}
-      <div style={{ padding: '20px 20px 0' }}>
+      <div style={{ padding: '24px 20px 0' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
           <MonthNav month={selectedMonth} onChange={setSelectedMonth} />
           <CurrencyToggle size="sm" />
@@ -69,12 +216,19 @@ export function FinanzasScreen() {
 
       {/* Quick actions */}
       <div style={{ padding: '20px 20px 0', display: 'flex', gap: 8 }}>
-        <ActionChip icon="arrow-down" label="Ingreso" primary onClick={() => setTxModal('in')} />
-        <ActionChip icon="arrow-up" label="Egreso" onClick={() => setTxModal('out')} />
+        <div data-tutorial="action-income" style={{ flex: 1, display: 'flex' }}>
+          <ActionChip icon="arrow-down" label="Ingreso" primary onClick={() => setTxModal('in')} />
+        </div>
+        <div style={{ flex: 1, display: 'flex' }}>
+          <ActionChip icon="arrow-up" label="Egreso" onClick={() => setTxModal('out')} />
+        </div>
+        <div data-tutorial="action-transfer" style={{ flex: 1, display: 'flex' }}>
+          <ActionChip icon="arrow-right" label="Transferir" onClick={() => setShowTransfer(true)} />
+        </div>
       </div>
 
       {/* Category cards */}
-      <div style={{ padding: '20px 20px 0' }}>
+      <div data-tutorial="categories-section" style={{ padding: '20px 20px 0' }}>
         <SectionTitle kicker={`${wallets.length} categorías`} title="Cada peso en su lugar" />
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {wallets.map((w, i) => {
@@ -168,12 +322,22 @@ export function FinanzasScreen() {
         open={txModal !== null}
         onClose={() => setTxModal(null)}
         wallets={wallets}
+        accounts={accounts}
         type={txModal ?? 'in'}
       />
+
+      <TransferModal
+        open={showTransfer}
+        accounts={accounts}
+        onClose={() => setShowTransfer(false)}
+      />
+
+      <CuentaEditModal open={showCreateAccount} onClose={() => setShowCreateAccount(false)} />
 
       <TransactionActionsModal
         tx={selectedTx}
         wallets={wallets}
+        accounts={accounts}
         currency={currency}
         onClose={() => setSelectedTx(null)}
       />
@@ -197,6 +361,7 @@ function totalsFor(txs: Transaction[], currency: DisplayCurrency) {
 function perWalletTotals(txs: Transaction[], currency: DisplayCurrency) {
   const acc: Record<string, { ingresos: number; egresos: number }> = {}
   for (const t of txs) {
+    if (t.source === 'transfer' || !t.walletId) continue
     const v = t.snapshot?.[currency] ?? 0
     const slot = acc[t.walletId] ?? { ingresos: 0, egresos: 0 }
     if (t.type === 'in') slot.ingresos += v

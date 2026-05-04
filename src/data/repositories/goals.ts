@@ -83,7 +83,14 @@ export interface AllocateInput {
   goalId: string
   amount: number
   date: string
+  /** Category to record the egress under (Tattoo, Nómina…). Optional — when
+   *  omitted no transaction is generated and the allocation only moves the
+   *  goal counter forward. */
   walletId?: string
+  /** Account the money came from. When provided, the generated tx will
+   *  point here so the account's balance moves accordingly. Optional only
+   *  for legacy flows that haven't been touched by the v3 migration yet. */
+  accountId?: string
 }
 export async function allocateToGoal(input: AllocateInput): Promise<GoalAllocation> {
   if (input.amount <= 0) throw new Error('El aporte debe ser mayor a 0')
@@ -116,6 +123,7 @@ export async function allocateToGoal(input: AllocateInput): Promise<GoalAllocati
   if (input.walletId) {
     await createTransaction({
       walletId: input.walletId,
+      accountId: input.accountId,
       type: 'out',
       amount: input.amount,
       currency: asDisplayCurrency(goal.currency),

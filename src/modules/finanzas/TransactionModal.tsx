@@ -4,12 +4,14 @@ import { PrimaryButton } from '@shared/components/primitives'
 import { TextField, SelectField } from '@shared/components/TextField'
 import { createTransaction } from '@/data/repositories/wallets'
 import { getRate } from '@/data/repositories/fx'
-import type { DisplayCurrency, TxType, Wallet } from '@/data/types'
+import type { Account, DisplayCurrency, TxType, Wallet } from '@/data/types'
 import { todayIso, formatMoneyRound } from '@shared/utils/format'
+import { ACCOUNT_KIND_META } from './accountKinds'
 
 const CURRENCIES: DisplayCurrency[] = ['COP', 'USD', 'EUR']
 const SYMBOL: Record<DisplayCurrency, string> = { COP: '$', USD: 'US$', EUR: '€' }
 const LAST_USED_KEY = 'horion:lastTxCurrency'
+const LAST_ACCOUNT_KEY = 'horion:lastTxAccount'
 
 function readLastUsed(): DisplayCurrency {
   if (typeof window === 'undefined') return 'COP'
@@ -21,17 +23,44 @@ function rememberLastUsed(c: DisplayCurrency): void {
   if (typeof window !== 'undefined') window.localStorage.setItem(LAST_USED_KEY, c)
 }
 
+function readLastAccount(): string | null {
+  if (typeof window === 'undefined') return null
+  return window.localStorage.getItem(LAST_ACCOUNT_KEY)
+}
+
+function rememberLastAccount(id: string): void {
+  if (typeof window !== 'undefined') window.localStorage.setItem(LAST_ACCOUNT_KEY, id)
+}
+
 interface Props {
   open: boolean
   onClose: () => void
   wallets: Wallet[]
+  accounts: Account[]
   type: TxType
   initialWalletId?: string
+  initialAccountId?: string
 }
 
-export function TransactionModal({ open, onClose, wallets, type, initialWalletId }: Props) {
+export function TransactionModal({
+  open,
+  onClose,
+  wallets,
+  accounts,
+  type,
+  initialWalletId,
+  initialAccountId,
+}: Props) {
   const defaultWallet = initialWalletId ?? wallets[0]?.id ?? ''
+  /* Account preference: explicit prop > localStorage > first account. The
+     localStorage path keeps repetitive entry friction-free — the user usually
+     records 5 cash movements in a row, then 3 from Nequi, etc. */
+  const defaultAccount =
+    initialAccountId ??
+    (accounts.find((a) => a.id === readLastAccount())?.id ?? accounts[0]?.id ?? '')
+
   const [walletId, setWalletId] = useState(defaultWallet)
+  const [accountId, setAccountId] = useState(defaultAccount)
   const [amount, setAmount] = useState('')
   const [currency, setCurrencyState] = useState<DisplayCurrency>(readLastUsed)
   const [title, setTitle] = useState('')
@@ -45,7 +74,22 @@ export function TransactionModal({ open, onClose, wallets, type, initialWalletId
     rememberLastUsed(c)
   }
 
-  if (open && walletId === '' && wallets.length > 0) setWalletId(wallets[0].id)
+  /* Re-sync the selected wallet/account when the modal re-opens. Without this,
+     creating an "in" then an "out" right after — or revisiting after pulling
+     in a new account — the picker can show a stale id that's no longer valid. */
+  useEffect(() => {
+    if (!open) return
+    if (!wallets.find((w) => w.id === walletId)) {
+      setWalletId(initialWalletId ?? wallets[0]?.id ?? '')
+    }
+    if (!accounts.find((a) => a.id === accountId)) {
+      setAccountId(
+        initialAccountId ??
+          (accounts.find((a) => a.id === readLastAccount())?.id ?? accounts[0]?.id ?? ''),
+      )
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, wallets, accounts, initialWalletId, initialAccountId])
 
   /* Live conversion hint shown under the amount: e.g. when typing 100 USD it
      shows "≈ $415.000 COP". Refreshes when amount/currency change. */
@@ -96,16 +140,22 @@ export function TransactionModal({ open, onClose, wallets, type, initialWalletId
       setError('Selecciona una categoría')
       return
     }
+    if (!accountId) {
+      setError('Selecciona la cuenta')
+      return
+    }
     setSaving(true)
     try {
       await createTransaction({
         walletId,
+        accountId,
         type,
         amount: parsed,
         currency,
         title: title || (type === 'in' ? 'Ingreso' : 'Egreso'),
         date,
       })
+      rememberLastAccount(accountId)
       handleClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al guardar')
@@ -119,12 +169,28 @@ export function TransactionModal({ open, onClose, wallets, type, initialWalletId
       onClose={handleClose}
       title={type === 'in' ? 'Nuevo ingreso' : 'Nuevo egreso'}
       footer={
-        <PrimaryButton onClick={handleSave} disabled={saving || !walletId || !amount}>
-          {saving ? 'Guardando…' : type === 'in' ? 'Registrar ingreso' : 'Registrar egreso'}
-        </PrimaryButton>
+        <div data-tutorial="tx-save">
+          <PrimaryButton onClick={handleSave} disabled={saving || !walletId || !accountId || !amount}>
+            {saving ? 'Guardando…' : type === 'in' ? 'Registrar ingreso' : 'Registrar egreso'}
+          </PrimaryButton>
+        </div>
       }
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div data-tutorial="tx-form" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <SelectField
+          label={type === 'in' ? 'Cuenta donde entra' : 'Cuenta de donde sale'}
+          value={accountId}
+          onChange={setAccountId}
+          options={
+            accounts.length > 0
+              ? accounts.map((a) => ({
+                  value: a.id,
+                  label: `${a.name} · ${ACCOUNT_KIND_META[a.kind].short}`,
+                }))
+              : [{ value: '', label: 'Crea una cuenta primero' }]
+          }
+        />
+
         <SelectField
           label="Categoría"
           value={walletId}
@@ -145,12 +211,7 @@ export function TransactionModal({ open, onClose, wallets, type, initialWalletId
           >
             Moneda
           </div>
-          <div
-            style={{
-              display: 'flex',
-              gap: 6,
-            }}
-          >
+          <div style={{ display: 'flex', gap: 6 }}>
             {CURRENCIES.map((c) => {
               const active = c === currency
               return (

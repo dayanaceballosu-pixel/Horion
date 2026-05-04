@@ -175,6 +175,10 @@ export interface RegisterPaymentInput {
    *  allowed — payment is recorded but no transactions are generated (rare
    *  case where the user is just tracking that a payment happened off-app). */
   allocations: PaymentAllocation[]
+  /** Account the payment was made from (or received into, for owedToMe).
+   *  Single account per payment — splits live at the category level, not
+   *  the account level, because the money typically moves out of one place. */
+  accountId?: string
   notes?: string
 }
 
@@ -218,6 +222,7 @@ export async function registerDebtPayment(input: RegisterPaymentInput): Promise<
     if (alloc.amount <= 0) continue
     await createTransaction({
       walletId: alloc.walletId,
+      accountId: input.accountId,
       type: txType,
       amount: alloc.amount,
       currency: txCurrency,
@@ -275,6 +280,7 @@ export async function markFixedBillPaid(
   billId: string,
   allocations: PaymentAllocation[],
   date: string,
+  accountId?: string,
 ): Promise<void> {
   const u = requireUid()
   const billRef = userSubDoc(u, 'fixedBills', billId)
@@ -297,6 +303,7 @@ export async function markFixedBillPaid(
     if (alloc.amount <= 0) continue
     await createTransaction({
       walletId: alloc.walletId,
+      accountId,
       type: 'out',
       amount: alloc.amount,
       currency: txCurrency,

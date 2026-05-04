@@ -21,6 +21,44 @@ export interface Wallet {
   archived?: boolean
 }
 
+/** Where the money actually lives. Drives icons, color, and balance display
+ *  on the Cuentas screen. Add a new kind by appending it here, then wiring
+ *  defaults in `accountKindMeta` and the create-account modal. */
+export type AccountKind =
+  | 'cash'
+  | 'nequi'
+  | 'daviplata'
+  | 'bancolombia'
+  | 'bank'
+  | 'savings'
+  | 'paypal'
+  | 'crypto'
+  | 'other'
+
+/** A real-world place where money sits — physical cash, a Nequi wallet, a
+ *  bank account, etc. Saldo is denormalized for instant reads and recomputed
+ *  from transactions on every mutation. `currency` is the account's native
+ *  currency; transactions in other currencies use the snapshot to convert. */
+export interface Account {
+  id: string
+  name: string
+  kind: AccountKind
+  currency: CurrencyCode
+  /** What the user said was already in the account when it was registered. */
+  initialBalance: number
+  /** Cached current balance in `currency`. Source of truth = initialBalance +
+   *  Σ(in - out) of transactions that point here. Recomputed on every mutation. */
+  balance: number
+  balanceUpdatedAt: number
+  /** Optional hex color override. Defaults to the kind's brand color. */
+  color?: string
+  archived?: boolean
+  /** Display order in the Cuentas list (smaller = first). */
+  order?: number
+  notes?: string
+  createdAt: number
+}
+
 export type TxType = 'in' | 'out'
 
 /** Snapshot of an amount expressed in the three display currencies, computed
@@ -35,7 +73,12 @@ export interface MoneySnapshot {
 
 export interface Transaction {
   id: string
-  walletId: string
+  /** Category id. Optional for transfer legs (transfers move money between
+   *  accounts and are not categorized). */
+  walletId?: string
+  /** Account where the money lived/lives. Optional only for legacy txs that
+   *  have not yet been touched by the v3 migration — new txs always set it. */
+  accountId?: string
   type: TxType
   /** Amount as the user typed it, in `currency`. */
   amount: number
@@ -49,9 +92,13 @@ export interface Transaction {
   /** epoch ms */
   createdAt: number
   notes?: string
-  /** When this tx is the result of an action elsewhere (debt payment, goal allocation). */
-  source?: 'manual' | 'debt' | 'goal' | 'fixedBill' | 'trip'
+  /** When this tx is the result of an action elsewhere (debt payment, goal
+   *  allocation, transfer between accounts, manual balance adjustment). */
+  source?: 'manual' | 'debt' | 'goal' | 'fixedBill' | 'trip' | 'transfer' | 'adjustment'
   sourceId?: string
+  /** Both legs of a transfer share this id so they can be displayed and
+   *  deleted as a single unit. Always paired with source: 'transfer'. */
+  transferGroupId?: string
 }
 
 export type DebtDirection = 'owedToMe' | 'iOwe'
@@ -274,6 +321,10 @@ export interface Settings {
   reminderHour: number
   installedAt: number
   onboardingCompleted: boolean
+  /** First-run guided tour. `undefined` or `false` triggers the tour the
+   *  next time the user lands on a routed screen. Set to true when the user
+   *  finishes the tour or skips it; can be reset from Perfil to replay. */
+  tutorialCompleted?: boolean
 }
 
 export interface FxRate {

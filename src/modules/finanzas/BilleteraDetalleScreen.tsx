@@ -3,10 +3,11 @@ import { useLocation, useParams } from 'wouter'
 import { ActionChip, BackBar, Card, ModuleHeading, SectionTitle } from '@shared/components/primitives'
 import { Icon } from '@shared/icons/Icon'
 import { transactionsQuery } from '@/data/repositories/wallets'
+import { accountsQuery } from '@/data/repositories/accounts'
 import { useDoc, useCollection } from '@shared/hooks/useFirestore'
 import { userSubDoc } from '@/data/firebase'
 import { useAuthStore } from '@/data/auth'
-import type { DisplayCurrency, Transaction, Wallet } from '@/data/types'
+import type { Account, DisplayCurrency, Transaction, Wallet } from '@/data/types'
 import { useThemeStore } from '@shared/theme/useTheme'
 import { useDisplayCurrency } from '@shared/hooks/useDisplayCurrency'
 import { CurrencyToggle } from '@shared/components/CurrencyToggle'
@@ -34,6 +35,7 @@ export function BilleteraDetalleScreen() {
     () => (params.id ? transactionsQuery({ walletId: params.id, limit: 500 }) : null),
     [params.id],
   )
+  const accounts = useCollection<Account>(() => accountsQuery(), [])
 
   const { currency } = useDisplayCurrency()
   const hidePrivate = useThemeStore((s) => s.hidePrivate)
@@ -159,6 +161,7 @@ export function BilleteraDetalleScreen() {
         open={txModal !== null}
         onClose={() => setTxModal(null)}
         wallets={wallet ? [wallet] : []}
+        accounts={accounts}
         type={txModal ?? 'in'}
         initialWalletId={wallet?.id}
       />
@@ -166,6 +169,7 @@ export function BilleteraDetalleScreen() {
       <TransactionActionsModal
         tx={selectedTx}
         wallets={wallet ? [wallet] : []}
+        accounts={accounts}
         currency={currency}
         onClose={() => setSelectedTx(null)}
       />

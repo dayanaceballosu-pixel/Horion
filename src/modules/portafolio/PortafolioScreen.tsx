@@ -12,10 +12,12 @@ import {
 } from '@/data/repositories/portfolio'
 import { allocateToGoal, createGoal, deleteGoal, goalsQuery } from '@/data/repositories/goals'
 import { walletsQuery } from '@/data/repositories/wallets'
+import { accountsQuery } from '@/data/repositories/accounts'
 import { settingsRef } from '@/data/repositories/settings'
 import { useCollection, useDoc } from '@shared/hooks/useFirestore'
 import { CURRENCY_SYMBOLS, isoMonth, todayIso } from '@shared/utils/format'
-import type { Goal, PortfolioPiece, Settings, Wallet } from '@/data/types'
+import type { Account, Goal, PortfolioPiece, Settings, Wallet } from '@/data/types'
+import { ACCOUNT_KIND_META } from '@modules/finanzas/accountKinds'
 
 const COLORS = ['#FFD9E6', '#1A0810', '#FF2E7E', '#FBDCE5', '#170A10', '#FFC1D6']
 
@@ -512,16 +514,31 @@ function NewGoalModal({ open, onClose }: { open: boolean; onClose: () => void })
 
 function AllocateModal({ goal, onClose }: { goal: { id: string; name: string }; onClose: () => void }) {
   const wallets = useCollection<Wallet>(() => walletsQuery(), [])
+  const accounts = useCollection<Account>(() => accountsQuery(), [])
   const [amount, setAmount] = useState('')
   const [walletId, setWalletId] = useState('')
+  const [accountId, setAccountId] = useState('')
   const [error, setError] = useState<string | null>(null)
+
+  /* Default to the first account once they load, but only if the user hasn't
+     picked one yet — keeps the selector "ready to submit" while still letting
+     them switch. */
+  if (!accountId && accounts.length > 0) {
+    setAccountId(accounts[0].id)
+  }
 
   const handleSave = async () => {
     setError(null)
     const a = Number(amount.replace(',', '.'))
     if (!Number.isFinite(a) || a <= 0) return setError('Monto inválido')
     try {
-      await allocateToGoal({ goalId: goal.id, amount: a, date: todayIso(), walletId: walletId || undefined })
+      await allocateToGoal({
+        goalId: goal.id,
+        amount: a,
+        date: todayIso(),
+        walletId: walletId || undefined,
+        accountId: walletId && accountId ? accountId : undefined,
+      })
       setAmount('')
       onClose()
     } catch (e) {
@@ -534,17 +551,32 @@ function AllocateModal({ goal, onClose }: { goal: { id: string; name: string }; 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <TextField label="Monto" value={amount} onChange={setAmount} inputMode="decimal" />
         <SelectField
-          label="Origen (opcional)"
+          label="Categoría (opcional)"
           value={walletId}
           onChange={setWalletId}
           options={[
-            { value: '', label: 'No descontar de billetera' },
+            { value: '', label: 'Solo subir el contador, sin egreso' },
             ...wallets.map((w) => ({
               value: w.id,
               label: w.name,
             })),
           ]}
         />
+        {walletId && (
+          <SelectField
+            label="Cuenta de donde sale"
+            value={accountId}
+            onChange={setAccountId}
+            options={
+              accounts.length > 0
+                ? accounts.map((a) => ({
+                    value: a.id,
+                    label: `${a.name} · ${ACCOUNT_KIND_META[a.kind].short}`,
+                  }))
+                : [{ value: '', label: 'Sin cuentas' }]
+            }
+          />
+        )}
         {error && (
           <Pill bg="var(--accent-pale)" color="var(--accent)">
             {error}

@@ -16,8 +16,11 @@ export function EstadisticasScreen() {
   const [tab, setTab] = useState<Tab>('mes')
   const wallets = useCollection<Wallet>(() => walletsQuery(), [])
   /* All transactions, capped at 2000 — comfortable headroom for years of
-     history. The screen aggregates everything client-side. */
-  const txs = useCollection<Transaction>(() => transactionsQuery({ limit: 2000 }), [])
+     history. The screen aggregates everything client-side. Transfer legs
+     are excluded because they're internal book-keeping, not income/expense
+     — including them would double-count once on each side. */
+  const allTxs = useCollection<Transaction>(() => transactionsQuery({ limit: 2000 }), [])
+  const txs = useMemo(() => allTxs.filter((t) => t.source !== 'transfer'), [allTxs])
   const { currency } = useDisplayCurrency()
 
   return (
@@ -515,6 +518,7 @@ function totalsFor(txs: Transaction[], currency: DisplayCurrency) {
 function perWalletTotals(txs: Transaction[], currency: DisplayCurrency) {
   const acc: Record<string, { ingresos: number; egresos: number }> = {}
   for (const t of txs) {
+    if (!t.walletId) continue
     const v = t.snapshot?.[currency] ?? 0
     const slot = acc[t.walletId] ?? { ingresos: 0, egresos: 0 }
     if (t.type === 'in') slot.ingresos += v

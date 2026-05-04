@@ -18,6 +18,7 @@ import {
 } from '@/data/auth'
 import { downloadBackup, exportBackup, importBackup, wipeAllData } from '@/data/backup'
 import type { CurrencyCode, Settings } from '@/data/types'
+import { useTutorialStore } from '@modules/tutorial/useTutorial'
 
 const ALL_CURRENCIES: CurrencyCode[] = ['COP', 'EUR', 'USD', 'PLN']
 
@@ -220,6 +221,12 @@ export function PerfilScreen() {
         <Card padding={6}>
           <Row icon="image" title="Portafolio" subtitle="Book del mes y export" onClick={() => navigate('/portafolio')} />
           <Row icon="heart" title="Bienestar" subtitle="Ciclo y daily checklist" onClick={() => navigate('/bienestar')} />
+          <Row
+            icon="sparkle"
+            title="Volver a ver el tutorial"
+            subtitle="Recorrido guiado por toda la app"
+            onClick={() => useTutorialStore.getState().start()}
+          />
         </Card>
       </div>
 
@@ -328,7 +335,7 @@ function Row({
   onClick,
   destructive,
 }: {
-  icon: 'download' | 'settings' | 'trash' | 'image' | 'heart' | 'lock'
+  icon: 'download' | 'settings' | 'trash' | 'image' | 'heart' | 'lock' | 'sparkle'
   title: string
   subtitle: string
   onClick?: () => void
